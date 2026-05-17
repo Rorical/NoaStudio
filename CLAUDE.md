@@ -27,8 +27,8 @@ Initial state seeds come from `src/data.js` (`DEMO_TRACKS`, `DEMO_CLIPS`, `DEMO_
 
 Two independent `requestAnimationFrame` loops run in `App.jsx`:
 
-1. **Transport loop** (depends on `playing`, `bpm`, `loop`): advances `time` in **beats** at rate `bpm/60`. Loops at beat 32 when `loop` is on, hard-stops at 128 otherwise.
-2. **Meter loop** (always running): writes synthetic `levels[channelId]` and `levels[channelId + '_r']` (L/R) using `sin()`/`Math.random()` keyed off the current beat and channel name. Special-cased names: `Kick`, `Snare`, `Hats`, `Master`. There is **no real audio analysis** — adding/renaming a channel won't make it meter unless it matches these names or you extend the loop.
+1. **Transport loop** (depends on `playing`, `bpm`, `loop`): reads `engine.currentSamplePosition()` from a `Uint32Array` backed by a `SharedArrayBuffer` that the audio worklet atomically writes each block. The main-thread RAF converts sample count → seconds → beats using `bpm`. When `loop` is on, the loop wraps at beat 32 by re-anchoring `samplesAtPlayStartRef` and `timeAtPlayStartRef` to the current position. Hard-stops at beat 128 otherwise. The elapsed-samples math uses `>>> 0` to remain correct across the ~24.9h uint32 wrap.
+2. **Meter loop** (always running): reads real engine data for the **Master** channel — calls `engine.readMeters()`, drains all queued frames, and picks the max `peak` per RAF tick for `levels['m0']`/`levels['m0_r']`. Other channel meters (`Kick`, `Snare`, `Hats`, etc.) are still simulated via `sin()`/`Math.random()` keyed off the current beat and channel name — those stay until Phase 6.
 
 Time is always in beats internally. The Toolbar converts to bars:beats:ticks and to a wall clock using `bpm`.
 

@@ -9,7 +9,9 @@ export function useEngine() {
   useEffect(() => {
     let cancelled = false;
     const engine = new EngineClient();
-    const workletUrl = new URL('./audio-worklet.ts', import.meta.url);
+    const workletUrl = import.meta.env.DEV
+      ? new URL('./audio-worklet.ts', import.meta.url)
+      : new URL('/audio-worklet.js', window.location.origin);
     engine
       .init(workletUrl)
       .then(() => {

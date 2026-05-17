@@ -52,7 +52,7 @@ export default function App() {
     let raf;
     const tick = () => {
       const samples = engine.currentSamplePosition();
-      const elapsedSeconds = (samples - samplesAtPlayStartRef.current) / engine.sampleRate;
+      const elapsedSeconds = ((samples - samplesAtPlayStartRef.current) >>> 0) / engine.sampleRate;
       const beatsElapsed = elapsedSeconds * (bpm / 60);
       let next = timeAtPlayStartRef.current + beatsElapsed;
       if (loop && next > 32) {

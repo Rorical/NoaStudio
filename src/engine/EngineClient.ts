@@ -116,9 +116,9 @@ export class EngineClient {
     }
   }
 
-  /** Worklet's sample counter, low 32 bits. Wraps after ~24h at 48k — fine for Phase 1 UI. */
+  /** Worklet's sample counter, low 32 bits. Wraps after ~24h at 48k. */
   currentSamplePosition(): number {
-    return this.telemetry ? Atomics.load(this.telemetry, 0) : 0;
+    return this.telemetry ? Atomics.load(this.telemetry, 0) >>> 0 : 0;
   }
 
   async dispose(): Promise<void> {
