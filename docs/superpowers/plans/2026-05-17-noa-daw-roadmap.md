@@ -2,7 +2,7 @@
 
 **Status:** Planning. The current codebase is a view-only React mockup; everything below is forward-looking.
 
-**End-state goal:** A browser-based DAW with a real audio engine, sample-accurate event delivery, customizable WASM plugins, and the existing FL-Studio-style UI driven by engine state instead of simulation.
+**End-state goal:** A browser-based DAW with a real audio engine, sample-accurate event delivery, customizable WASM plugins (with optional bundled HTML UIs that float as draggable, VST-style sub-windows), and the existing FL-Studio-style UI driven by engine state instead of simulation.
 
 **Target platform:** Chromium-only. Plan freely uses `SharedWorker`, `SharedArrayBuffer`, `Atomics`, `AudioWorklet`, COOP/COEP. No graceful degradation.
 
@@ -58,23 +58,41 @@
 
 ## Phase 3 — WASM plugin ABI v1
 
-**Delivers:** A documented `.noaplugin` package format and a host runtime in the AudioWorklet that can load, instantiate, and process audio through a third-party WASM plugin. The Phase 1 sine generator is replaced by a built-in WASM module compiled from a sample plugin source.
+**Delivers:** A documented `.noaplugin` package format and a host runtime that can load, instantiate, and process audio through a third-party WASM plugin — *with* a floating, draggable HTML UI per instance, communicating with the audio core in real time. The Phase 1 sine generator is replaced by a built-in WASM module compiled from a sample plugin source.
 
 **Components introduced:**
+
+*Audio side:*
 - `docs/plugin-abi-v1.md` — Authoritative spec. Linear-memory layout, required exports (`noa_init`, `noa_process`, `noa_param_count`, `noa_param_info`, `noa_state_size`, `noa_get_state`, `noa_set_state`), available host imports (`host_log`, `host_random`, `host_get_tempo`).
-- `.noaplugin` format: ZIP containing `plugin.wasm` + `plugin.json` (metadata: name, version, port count, parameter declarations, GUI bundle reference).
+- `.noaplugin` format: ZIP containing `plugin.wasm` + `plugin.json` (manifest: name, version, port count, parameter declarations, optional `ui: { entry, width, height, resizable }`) + optional `ui/` directory with `index.html` and any referenced assets.
 - `src/engine/PluginHost.ts` — Instantiates a WASM module against a fresh `WebAssembly.Memory`, sets up imports, owns the plugin's linear-memory layout (input buffer ptr, output buffer ptr, event queue ptr, param block ptr).
 - `src/engine/audio-worklet.ts` extensions — Per-track plugin instance lookup, calling `noa_process` per block with shared linear-memory pointers. Polyphonic voice allocation moves into the plugin, not the host.
-- `examples/plugins/gain/` — Reference plugin, Rust + `wasm-bindgen`-free hand-rolled, ~100 LoC. Builds to `gain.noaplugin`.
-- `examples/plugins/sine/` — Replacement for `SineGenerator.ts`. Now a real plugin.
 
-**Demo at end of phase:** Drag the `Sine` plugin from the Browser onto a track; play → hear sine. Drag the `Gain` plugin onto the master channel; drag the fader → audible gain change.
+*UI side:*
+- `src/engine/PluginUIHost.ts` — Per-instance iframe lifecycle. Builds a Blob URL from the plugin's `ui/index.html` (assets inlined as data URLs for v1; Phase 5 replaces this with a Service Worker virtual FS for multi-asset bundles). Creates a same-origin `<iframe sandbox="allow-scripts">` (no `allow-same-origin` → can't reach `window.top`, can't read cookies; same-origin Blob still lets us share SAB references). Hands two SABs to the iframe over `postMessage` after `load`: a parameter ring (UI→core: writes parameter changes) and a notification ring (core→UI: writes parameter changes from automation, mixer fader, etc., plus meter/scope data).
+- `src/engine/PluginUIProtocol.ts` — The `postMessage` envelope schema (control lane). Messages: `hello`/`ready` handshake, `param-set`, `param-changed`, `state-snapshot`/`state-restore`, `meter-subscribe`/`meter-unsubscribe`. All structured-clone-safe.
+- `src/components/PluginWindow.jsx` — Floating-panel chrome around the iframe: drag, resize, z-order, minimize/close. Reuses the position/clamp pattern from `TweaksPanel.jsx`. Generic — wraps any plugin's iframe; the plugin's HTML draws inside.
+- `examples/plugins/gain/` — Reference plugin, hand-rolled Rust → WASM (~100 LoC) + a small HTML UI: one knob (raw `<input type="range">` + CSS), reads/writes the param SAB at RAF rate. Builds to `gain.noaplugin`.
+- `examples/plugins/sine/` — Replacement for `SineGenerator.ts`. Real plugin with a minimal UI (note selector, optional ADSR).
 
-**Decisions to make in this phase's spec:**
+**UI host contract (locked decisions):**
+- **Origin:** same-origin Blob URL. `crossOriginIsolated` is preserved, so `SharedArrayBuffer` passes through `postMessage` to the iframe.
+- **Sandbox:** `sandbox="allow-scripts"` — no `allow-same-origin`, no `allow-top-navigation`, no `allow-forms`. Plugins can run JS but can't escape into the host DOM or navigate the page.
+- **Comms — two lanes:**
+  - *Control lane* (`postMessage`): low-rate, JSON-shaped messages. Used for parameter set/get, preset load, state snapshot/restore, opening/closing the UI. Easy to debug, easy to log, easy to record for tests.
+  - *Real-time lane* (SAB ring buffers): parameter automation curves, meter data, scope/spectrum visuals. UI subscribes once via control lane (`meter-subscribe { kind, slot }`), then polls the SAB at RAF rate using `Atomics.load`. Parameter writes from the UI go straight into the audio worklet's event ring via a dedicated UI→engine ring per instance — sample-accurate by construction, no main-thread hop.
+- **Parameter sync:** the canonical state lives in the WASM instance's linear memory. UI changes flow UI→ring→worklet→plugin. External changes (mixer fader, automation, host preset load) flow plugin→core→notification-ring→UI. UIs are pure views — they don't store parameter state themselves beyond what they render.
+- **Lifecycle:** the iframe is created when the user opens the plugin window and destroyed on close. Closing the UI does NOT unload the plugin or stop audio. Reopening re-creates the iframe and replays the current parameter snapshot. UIs can save their own view-state (collapsed sections, zoom levels) by piggybacking on `noa_get_state` via a manifest-declared `ui_state_bytes` field.
+- **Headless plugins:** plugins without a `ui` manifest field get a generic auto-UI built from parameter metadata — same `PluginWindow` chrome, but the host renders the knobs from `noa_param_info`. Means "ship just a WASM" is a valid plugin shape.
+
+**Demo at end of phase:** Drag the `Sine` plugin from the Browser onto a track; play → hear sine. Drag the `Gain` plugin onto the master channel. Double-click the plugin in the Mixer FX rack → its HTML UI opens as a floating window with a knob. Drag the knob → audio gain changes in real time. Drag the mixer's master fader → the plugin window's knob updates instantly to match.
+
+**Decisions to make in this phase's spec (everything else is already locked above):**
 - Memory model: does the host or plugin own the audio buffers? (Recommend: host preallocates, passes pointers each block.)
 - Threading model: is `noa_process` called from inside the worklet (synchronous, RT-safe) or marshalled to a dedicated worker? Phase 3 = synchronous in worklet; Phase 4 explores split.
 - Parameter contract: continuous floats, discrete enums, modulation sources.
 - ABI version negotiation and forward-compatibility rules.
+- v1 asset bundling: inline-all-assets-as-data-URLs (simplest, breaks for plugins with many large assets) vs unpack-into-OPFS-on-install (more complex but no size cliff). MVP picks inline; Phase 5 supersedes.
 
 ---
 
@@ -92,27 +110,32 @@
 
 **Decisions to make in this phase's spec:**
 - Worker-per-instance vs worker-pool (one worker hosting N plugins).
-- Whether plugin GUI runs on main thread (canvas/DOM) or in the worker with `OffscreenCanvas`.
+- Optional `OffscreenCanvas` transfer from the plugin UI iframe → plugin worker, for plugins that want to render heavy visualizations (spectrum, scope) off the main thread. Plugin GUI itself stays in the iframe; only the rendering surface can move.
 - Voice allocation: stays with plugin, or moves to a host-level voice manager?
 
 ---
 
 ## Phase 5 — Service Worker delivery
 
-**Delivers:** Plugins installed from URLs, cached offline, served with COEP-compatible headers, isolated from the main origin.
+**Delivers:** Plugins installed from URLs, cached offline, served with COEP-compatible headers. Crucially, this phase replaces Phase 3's inline-data-URL UI bundling with a real virtual filesystem, so plugin UIs can ship arbitrary assets (multiple HTML files, CSS imports, fonts, large SVG/PNG art, dynamic `import()`s).
 
 **Components introduced:**
-- `src/sw/plugin-cache.sw.ts` — Service Worker that intercepts `/plugins/*` requests, serves from a Cache Storage entry, falls through to network for misses. Adds `Cross-Origin-Resource-Policy: same-origin` so the bundles can be loaded under COEP.
-- `src/coordinator/PluginRegistry.ts` — Coordinator-owned: tracks installed plugins, their bundle URLs, version/integrity hashes. Exposes `installPlugin(url)`, `removePlugin(id)`, `listInstalled()`.
+- `src/sw/plugin-cache.sw.ts` — Service Worker that intercepts three URL spaces:
+  - `/plugins/<id>/<version>/wasm` — the `.noaplugin`'s `plugin.wasm`. Served with `application/wasm` and COEP-compatible headers.
+  - `/plugin-ui/<instance-id>/<path>` — the plugin's UI assets. Per-instance scoping so two instances of the same plugin don't share a window object. The iframe's Blob URL is replaced with `<iframe src="/plugin-ui/<instance-id>/index.html">`, and the SW resolves every same-origin fetch from the iframe against the unpacked `.noaplugin` ZIP.
+  - `/project-assets/<id>/<path>` — IndexedDB/OPFS-backed project data, so plugins can reference samples via URLs without filesystem APIs.
+  All three serve with `Cross-Origin-Resource-Policy: same-origin` so they load under COEP.
+- `src/coordinator/PluginRegistry.ts` — Coordinator-owned: tracks installed plugins, their bundle URLs, version/integrity hashes, and unpacked-asset roots in OPFS. Exposes `installPlugin(url)`, `removePlugin(id)`, `listInstalled()`. On install: download → SRI-verify → unzip → write `plugin.wasm` and `ui/` to OPFS under the plugin's content-addressed root.
+- `src/engine/PluginUIHost.ts` updates — When the SW is registered, switch from Blob URLs to `/plugin-ui/<instance-id>/index.html`. Falls back to Phase-3 Blob URLs if the SW failed to register (e.g., in dev without HTTPS).
 - Browser sandbox: `.noaplugin` archives served from a dedicated subpath, integrity-checked via Subresource Integrity (SRI) hashes recorded in the registry.
-- Virtual file system shim — Service Worker also serves `/project-assets/*` URLs that resolve to IndexedDB/OPFS-backed project data, letting plugins reference samples via URLs without exposing the filesystem.
 
-**Demo at end of phase:** Paste a plugin URL into the Browser pane; "Install" button. Reload the page with network disabled; the plugin is still there and works.
+**Demo at end of phase:** Paste a plugin URL into the Browser pane; "Install" button. Plugin's UI uses three external CSS files and a custom font — all serve from the SW cache, no network. Reload the page with network disabled; the plugin is still there, its UI still themes correctly, and audio still works.
 
 **Decisions to make in this phase's spec:**
 - Registry: anyone can publish, or curated list?
 - Update strategy: pinned versions, semver ranges, auto-update?
 - Permissions model for plugins requesting filesystem/MIDI/network access.
+- Asset lifetime for closed-window plugins: keep the unpacked OPFS root forever (cheap, but accumulates) or evict on uninstall + LRU when over quota?
 
 ---
 
@@ -124,7 +147,7 @@
 - `App.jsx`: delete the two RAF loops (transport + meter sim). Subscribe to coordinator project + engine telemetry.
 - `Playlist.jsx`: clip drag → dispatches `MoveClip` action to coordinator instead of mutating `clips` state.
 - `PianoRoll.jsx`: note edits → `EditPattern` actions; live playhead reads from engine sample counter.
-- `Mixer.jsx`: fader/pan → `SetParam` events to engine; meters → `engine.readMeters()`.
+- `Mixer.jsx`: fader/pan → `SetParam` events to engine; meters → `engine.readMeters()`. Double-clicking an FX-rack entry (or its "open editor" button) opens that plugin instance's `<PluginWindow>` from Phase 3 — the mixer is the canonical entry point for plugin UIs.
 - `Toolbar.jsx`: Play/Stop → engine transport events; BPM → `Tempo` event.
 - Persistence: project autosaves via coordinator to OPFS. Open/Save UI ties to actual files.
 - A `WaveformView` for audio clips that reads real PCM data from the audio worker (Phase 4 oscilloscope path repurposed).
