@@ -8,11 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/` for smoke-testing.
 
-There is no test runner, linter, or type checker configured. Don't claim "tests pass" — there are none. For UI changes, run `npm run dev` and click through.
+- `npm test` — Vitest unit tests (Node environment, no browser). All 25 tests across `RingBuffer`, `EngineEvent`, and `SineGenerator` suites should pass.
+- `npm run typecheck` — TypeScript type check (`tsc --noEmit`).
+
+For UI changes, run `npm run dev` and click through.
 
 ## Architecture
 
-Noa Studio is a **mock DAW (FL Studio-style) UI**, fully client-side. There is no audio engine, no backend, no persistence. Everything that looks like playback, metering, or signal flow is simulated for visual fidelity.
+Noa Studio is a browser-based DAW under active construction. As of Phase 1 (audio foundation), a real `AudioWorkletProcessor`-based engine lives under `src/engine/`. Transport time and the **master** meter are driven by the engine; per-channel mixer meters are still simulated. Plugins, persistence, and multi-track audio routing arrive in later phases — see `docs/superpowers/plans/2026-05-17-noa-daw-roadmap.md`.
 
 ### State lives in App.jsx
 
@@ -66,3 +69,15 @@ The theme is switched by `App.jsx` setting `data-theme` on `document.documentEle
 ### Icons
 
 `src/components/Icon.jsx` is a flat lookup of inline SVG `<path>`/`<g>` nodes keyed by name. To add an icon, add an entry to the `ICONS` map — don't reach for an icon library.
+
+### Engine module (`src/engine/`)
+
+TypeScript module, isolated from the JSX UI. Communicates with the React tree via the `useEngine()` hook in `src/engine/useEngine.js`.
+
+- `RingBuffer.ts` — SPSC ring buffer over `SharedArrayBuffer`. Header layout: `[writeIdx, readIdx, capacity, frameSize]` as a `Uint32Array`. Capacity is power-of-2; indices are monotonic and masked on slot lookup.
+- `EngineEvent.ts` — 32-byte binary event frames (`NoteOn`, `NoteOff`, `ParamSet`, `Transport`, `Tempo`). `frameOffset` field gives sample-accurate timing within an audio block.
+- `dsp/SineGenerator.ts` — Headless 8-voice polyphonic sine generator. Pure DSP, fully unit-testable. Will be deleted in Phase 3 when real plugins arrive.
+- `audio-worklet.ts` — `AudioWorkletProcessor` shim. Drains the event ring, runs the generator, publishes per-block meter frames and a sample-counter telemetry SAB.
+- `EngineClient.ts` — Main-thread façade. Owns the `AudioContext` + `AudioWorkletNode`. Requires `crossOriginIsolated === true` (enforced by COOP/COEP headers in `vite.config.js`).
+
+Tests live under `src/engine/**/__tests__/*.test.ts` and run via `npm test` (Vitest, Node environment). Anything that touches `AudioContext` is verified by manual browser smoke tests, not unit tests.
