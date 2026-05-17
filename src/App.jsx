@@ -41,23 +41,33 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  const samplesAtPlayStartRef = useRef(0);
+  const timeAtPlayStartRef = useRef(0);
   useEffect(() => {
     if (!playing) return;
-    let raf, last = performance.now();
-    const tick = (now) => {
-      const dt = (now - last) / 1000;
-      last = now;
-      setTime((t) => {
-        const next = t + (bpm / 60) * dt;
-        if (loop && next > 32) return 0;
-        if (next > 128) return 0;
-        return next;
-      });
+    const engine = engineRef.current;
+    if (!engine) return;
+    samplesAtPlayStartRef.current = engine.currentSamplePosition();
+    timeAtPlayStartRef.current = time;
+    let raf;
+    const tick = () => {
+      const samples = engine.currentSamplePosition();
+      const elapsedSeconds = (samples - samplesAtPlayStartRef.current) / engine.sampleRate;
+      const beatsElapsed = elapsedSeconds * (bpm / 60);
+      let next = timeAtPlayStartRef.current + beatsElapsed;
+      if (loop && next > 32) {
+        next = next % 32;
+        samplesAtPlayStartRef.current = samples;
+        timeAtPlayStartRef.current = next;
+      }
+      if (next > 128) next = 0;
+      setTime(next);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, bpm, loop]);
+    // bpm/loop changes are intentionally re-captured by the new closure.
+  }, [playing, bpm, loop, engineRef]);
 
   const meterScratchRef = useRef([]);
   useEffect(() => {
