@@ -6,6 +6,7 @@ import PianoRoll from './components/PianoRoll.jsx';
 import Mixer from './components/Mixer.jsx';
 import TweaksPanel from './components/TweaksPanel.jsx';
 import { TRACK_COLORS, DEMO_TRACKS, DEMO_CLIPS, DEMO_CHANNELS, PLUGINS, FILES } from './data.js';
+import { useEngine } from './engine/useEngine.js';
 
 export default function App() {
   const [theme, setTheme] = useState('dark');
@@ -24,6 +25,13 @@ export default function App() {
   const [bpm, setBpm] = useState(124);
   const [time, setTime] = useState(0);
   const [levels, setLevels] = useState({});
+
+  const { engineRef, ready: engineReady, error: engineError } = useEngine();
+
+  useEffect(() => {
+    if (engineReady) engineRef.current?.setTempo(bpm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engineReady]);
 
   const [view, setView] = useState('tracks');
   const [browserOpen, setBrowserOpen] = useState(true);
@@ -81,9 +89,34 @@ export default function App() {
 
   const masterLevels = [levels['m0'] || 0, levels['m0_r'] || 0];
 
-  const handlePlay = useCallback(() => setPlaying((p) => !p), []);
-  const handleStop = useCallback(() => { setPlaying(false); setTime(0); }, []);
-  const handleRecord = useCallback(() => { setRecording((r) => !r); setPlaying((p) => (!p ? true : p)); }, []);
+  const handlePlay = useCallback(async () => {
+    const engine = engineRef.current;
+    if (engine) await engine.resume();
+    setPlaying((prev) => {
+      const next = !prev;
+      if (engine) {
+        if (next) {
+          engine.play(time);
+          engine.noteOn(60, 100);
+          setTimeout(() => engine.noteOff(60), 800);
+        } else {
+          engine.stop();
+        }
+      }
+      return next;
+    });
+  }, [engineRef, time]);
+
+  const handleStop = useCallback(() => {
+    setPlaying(false);
+    setTime(0);
+    engineRef.current?.stop();
+  }, [engineRef]);
+
+  const handleRecord = useCallback(() => {
+    setRecording((r) => !r);
+    setPlaying((p) => (!p ? true : p));
+  }, []);
 
   const moveClip = useCallback((id, newStart) => {
     setClips((cs) => cs.map((c) => (c.id === id ? { ...c, start: newStart } : c)));
@@ -186,7 +219,10 @@ export default function App() {
         onRecord={handleRecord}
         onLoop={() => setLoop((l) => !l)}
         onMetronome={() => setMetronome((m) => !m)}
-        onBpm={setBpm}
+        onBpm={(b) => {
+          setBpm(b);
+          engineRef.current?.setTempo(b);
+        }}
         view={view}
         onView={setView}
         browserOpen={browserOpen}
