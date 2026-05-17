@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Toolbar from './components/Toolbar.jsx';
 import Browser from './components/Browser.jsx';
 import Playlist from './components/Playlist.jsx';
@@ -59,6 +59,7 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, [playing, bpm, loop]);
 
+  const meterScratchRef = useRef([]);
   useEffect(() => {
     let raf;
     const tick = () => {
@@ -73,19 +74,32 @@ export default function App() {
           if (ch.name === 'Kick')  base = 0.4 + Math.pow(Math.abs(Math.sin(beat * Math.PI)), 6) * 0.6 * ch.vol;
           if (ch.name === 'Snare') base = 0.2 + (beat % 2 < 0.2 ? 0.7 : 0) * ch.vol;
           if (ch.name === 'Hats')  base = 0.15 + Math.abs(Math.sin(beat * 8 + Math.random() * 0.5)) * 0.4 * ch.vol;
-          if (ch.name === 'Master') base = 0.45 + Math.abs(Math.sin(beat * 2)) * 0.4;
+          if (ch.name === 'Master') base = 0;
           newLevels[ch.id] = Math.max(0, Math.min(1, base));
           newLevels[ch.id + '_r'] = Math.max(0, Math.min(1, base * (0.85 + Math.sin(t * 4 + ch.vol) * 0.1)));
         });
       } else {
         channels.forEach((ch) => { newLevels[ch.id] = 0; newLevels[ch.id + '_r'] = 0; });
       }
+
+      // Master comes from the real engine.
+      const engine = engineRef.current;
+      if (engine) {
+        engine.readMeters(meterScratchRef.current);
+        let peak = 0;
+        for (const r of meterScratchRef.current) {
+          if (r.channelId === 0 && r.peak > peak) peak = r.peak;
+        }
+        newLevels['m0'] = peak;
+        newLevels['m0_r'] = peak;
+      }
+
       setLevels(newLevels);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, time, channels]);
+  }, [playing, time, channels, engineRef]);
 
   const masterLevels = [levels['m0'] || 0, levels['m0_r'] || 0];
 
