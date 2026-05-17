@@ -100,6 +100,11 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         draft.metronome = !draft.metronome;
         return;
       }
+      default: {
+        const _exhaustive: never = action;
+        void _exhaustive;
+        return;
+      }
     }
   });
 }

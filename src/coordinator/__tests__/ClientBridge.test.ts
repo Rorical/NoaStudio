@@ -1,12 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { enablePatches } from 'immer';
+import { describe, it, expect } from 'vitest';
 import { ClientBridge } from '../ClientBridge';
 import { seedProject } from '../projectModel';
 import type { ClientToWorker, WorkerToClient } from '../protocol';
-
-beforeAll(() => {
-  enablePatches();
-});
 
 function makePair() {
   const channel = new MessageChannel();

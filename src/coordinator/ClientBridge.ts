@@ -1,10 +1,12 @@
-import { applyPatches } from 'immer';
+import { applyPatches, enablePatches } from 'immer';
+enablePatches();
 import type { Project } from './projectModel';
+import { seedProject } from './projectModel';
 import type { Action } from './actions';
 import type { ClientToWorker, WorkerToClient } from './protocol';
 
 export class ClientBridge {
-  private state: Project | null = null;
+  private state: Project = seedProject();
   private undoFlag = false;
   private redoFlag = false;
   private listeners = new Set<() => void>();
@@ -19,9 +21,6 @@ export class ClientBridge {
   }
 
   getState(): Project {
-    if (!this.state) {
-      throw new Error('ClientBridge: state not yet received (call connect() and await snapshot)');
-    }
     return this.state;
   }
 
@@ -61,7 +60,6 @@ export class ClientBridge {
         this.notify();
         return;
       case 'patch':
-        if (!this.state) return;
         this.state = applyPatches(this.state, msg.patches);
         this.notify();
         return;

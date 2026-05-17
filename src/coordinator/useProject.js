@@ -16,24 +16,12 @@ function shallowEqual(a, b) {
 
 export function useProject(selector) {
   const bridge = getCoordinator();
-  const [ready, setReady] = useState(() => {
-    try { bridge.getState(); return true; } catch { return false; }
-  });
-  useEffect(() => {
-    if (ready) return;
-    return bridge.subscribe(() => {
-      try { bridge.getState(); setReady(true); } catch { /* keep waiting */ }
-    });
-  }, [bridge, ready]);
-
   const cacheRef = useRef({ state: null, selected: undefined });
 
   const subscribe = useCallback((cb) => bridge.subscribe(cb), [bridge]);
 
   const getSnapshot = useCallback(() => {
-    let state;
-    try { state = bridge.getState(); }
-    catch { return cacheRef.current.selected; }
+    const state = bridge.getState();
     if (state !== cacheRef.current.state) {
       const next = selector(state);
       if (!shallowEqual(cacheRef.current.selected, next)) {
@@ -57,10 +45,12 @@ export function useUndoRedo() {
   const bridge = getCoordinator();
   const [, force] = useState(0);
   useEffect(() => bridge.subscribe(() => force((n) => n + 1)), [bridge]);
+  const undo = useCallback(() => bridge.undo(), [bridge]);
+  const redo = useCallback(() => bridge.redo(), [bridge]);
   return {
     canUndo: bridge.canUndo(),
     canRedo: bridge.canRedo(),
-    undo: () => bridge.undo(),
-    redo: () => bridge.redo(),
+    undo,
+    redo,
   };
 }

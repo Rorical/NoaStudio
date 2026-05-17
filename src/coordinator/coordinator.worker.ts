@@ -27,7 +27,13 @@ const portIds = new WeakMap<MessagePort, number>();
 void (async () => {
   try {
     const persisted = await store.read();
-    if (persisted) state = persisted;
+    if (persisted) {
+      state = persisted;
+      // Re-broadcast to any tabs that connected during the load window.
+      for (const p of ports) {
+        p.postMessage({ kind: 'snapshot', state } satisfies WorkerToClient);
+      }
+    }
   } catch (e) {
     console.error('[coordinator] OPFS read failed; using seed', e);
   }
@@ -74,6 +80,10 @@ self.onconnect = (event: MessageEvent) => {
   const id = nextPortId++;
   portIds.set(port, id);
   ports.add(port);
+
+  port.onmessageerror = () => {
+    ports.delete(port);
+  };
 
   port.onmessage = (e: MessageEvent<ClientToWorker>) => {
     const msg = e.data;
