@@ -5,24 +5,33 @@ import Playlist from './components/Playlist.jsx';
 import PianoRoll from './components/PianoRoll.jsx';
 import Mixer from './components/Mixer.jsx';
 import TweaksPanel from './components/TweaksPanel.jsx';
-import { TRACK_COLORS, DEMO_TRACKS, DEMO_CLIPS, DEMO_CHANNELS, PLUGINS, FILES } from './data.js';
+import { TRACK_COLORS, PLUGINS, FILES } from './data.js';
 import { useEngine } from './engine/useEngine.js';
+import { useDispatch, useProject } from './coordinator/useProject.js';
+
+const selectTracks = (p) => p.tracks;
+const selectClips = (p) => p.clips;
+const selectChannels = (p) => p.channels;
+const selectBpm = (p) => p.bpm;
+const selectLoop = (p) => p.loop;
+const selectMetronome = (p) => p.metronome;
 
 export default function App() {
   const [theme, setTheme] = useState('dark');
   const [tweaksOpen, setTweaksOpen] = useState(false);
-  const [tracks, setTracks] = useState(DEMO_TRACKS);
-  const [clips, setClips] = useState(DEMO_CLIPS);
-  const [channels, setChannels] = useState(DEMO_CHANNELS);
+  const tracks = useProject(selectTracks);
+  const clips = useProject(selectClips);
+  const channels = useProject(selectChannels);
+  const dispatch = useDispatch();
   const [selectedClipId, setSelectedClipId] = useState('c20');
   const [selectedChannelId, setSelectedChannelId] = useState('m6');
   const [openClipId, setOpenClipId] = useState('c20');
 
   const [playing, setPlaying] = useState(false);
   const [recording, setRecording] = useState(false);
-  const [loop, setLoop] = useState(true);
-  const [metronome, setMetronome] = useState(false);
-  const [bpm, setBpm] = useState(124);
+  const bpm = useProject(selectBpm);
+  const loop = useProject(selectLoop);
+  const metronome = useProject(selectMetronome);
   const [time, setTime] = useState(0);
   const [levels, setLevels] = useState({});
 
@@ -143,8 +152,8 @@ export default function App() {
   }, []);
 
   const moveClip = useCallback((id, newStart) => {
-    setClips((cs) => cs.map((c) => (c.id === id ? { ...c, start: newStart } : c)));
-  }, []);
+    dispatch({ type: 'MOVE_CLIP', clipId: id, start: newStart });
+  }, [dispatch]);
 
   const openPianoRoll = useCallback((id) => {
     setOpenClipId(id);
@@ -154,73 +163,58 @@ export default function App() {
   }, []);
 
   const assignGenerator = useCallback((trackId, name) => {
-    setTracks((ts) => ts.map((t) => (t.id === trackId ? { ...t, generator: name, type: 'midi' } : t)));
-  }, []);
+    dispatch({ type: 'ASSIGN_GENERATOR', trackId, generator: name });
+  }, [dispatch]);
 
   const addEffect = useCallback((channelId, plugin) => {
-    setChannels((cs) =>
-      cs.map((c) =>
-        c.id === channelId
-          ? {
-              ...c,
-              effects: [
-                ...c.effects,
-                { id: 'e' + Math.random().toString(36).slice(2, 6), name: plugin.name, kind: 'fx', bypass: false },
-              ],
-            }
-          : c,
-      ),
-    );
-  }, []);
+    dispatch({
+      type: 'ADD_EFFECT',
+      channelId,
+      effect: {
+        id: 'e' + Math.random().toString(36).slice(2, 6),
+        name: plugin.name,
+        kind: 'fx',
+        bypass: false,
+      },
+    });
+  }, [dispatch]);
 
   const removeEffect = useCallback((channelId, fxId) => {
-    setChannels((cs) =>
-      cs.map((c) => (c.id === channelId ? { ...c, effects: c.effects.filter((e) => e.id !== fxId) } : c)),
-    );
-  }, []);
+    dispatch({ type: 'REMOVE_EFFECT', channelId, effectId: fxId });
+  }, [dispatch]);
 
   const bypassEffect = useCallback((channelId, fxId) => {
-    setChannels((cs) =>
-      cs.map((c) =>
-        c.id === channelId
-          ? { ...c, effects: c.effects.map((e) => (e.id === fxId ? { ...e, bypass: !e.bypass } : e)) }
-          : c,
-      ),
-    );
-  }, []);
+    dispatch({ type: 'BYPASS_EFFECT', channelId, effectId: fxId });
+  }, [dispatch]);
 
   const setFader = useCallback((id, v) => {
-    setChannels((cs) => cs.map((c) => (c.id === id ? { ...c, vol: v } : c)));
-  }, []);
+    dispatch({ type: 'SET_FADER', channelId: id, value: v });
+  }, [dispatch]);
   const setPan = useCallback((id, v) => {
-    setChannels((cs) => cs.map((c) => (c.id === id ? { ...c, pan: v } : c)));
-  }, []);
+    dispatch({ type: 'SET_PAN', channelId: id, value: v });
+  }, [dispatch]);
   const toggleMute = useCallback((id) => {
-    setChannels((cs) => cs.map((c) => (c.id === id ? { ...c, mute: !c.mute } : c)));
-  }, []);
+    dispatch({ type: 'TOGGLE_CHANNEL_MUTE', channelId: id });
+  }, [dispatch]);
   const toggleSolo = useCallback((id) => {
-    setChannels((cs) => cs.map((c) => (c.id === id ? { ...c, solo: !c.solo } : c)));
-  }, []);
+    dispatch({ type: 'TOGGLE_CHANNEL_SOLO', channelId: id });
+  }, [dispatch]);
 
   const toggleTrackMute = useCallback((id) => {
-    setTracks((ts) => ts.map((t) => (t.id === id ? { ...t, mute: !t.mute } : t)));
-    const tr = tracks.find((t) => t.id === id);
-    if (tr) toggleMute('m' + tr.channel);
-  }, [tracks, toggleMute]);
+    dispatch({ type: 'TOGGLE_TRACK_MUTE', trackId: id });
+  }, [dispatch]);
 
   const toggleTrackSolo = useCallback((id) => {
-    setTracks((ts) => ts.map((t) => (t.id === id ? { ...t, solo: !t.solo } : t)));
-    const tr = tracks.find((t) => t.id === id);
-    if (tr) toggleSolo('m' + tr.channel);
-  }, [tracks, toggleSolo]);
+    dispatch({ type: 'TOGGLE_TRACK_SOLO', trackId: id });
+  }, [dispatch]);
 
   const updateClipNotes = useCallback((clipId, noteTuples) => {
-    setClips((cs) => cs.map((c) => (c.id === clipId ? { ...c, pattern: { notes: noteTuples } } : c)));
-  }, []);
+    dispatch({ type: 'UPDATE_CLIP_NOTES', clipId, notes: noteTuples });
+  }, [dispatch]);
 
   const updateClipLength = useCallback((clipId, newLength) => {
-    setClips((cs) => cs.map((c) => (c.id === clipId && newLength > c.length ? { ...c, length: newLength } : c)));
-  }, []);
+    dispatch({ type: 'UPDATE_CLIP_LENGTH', clipId, length: newLength });
+  }, [dispatch]);
 
   const openClip = clips.find((c) => c.id === openClipId);
   const openClipTrack = openClip ? tracks.find((t) => t.id === openClip.trackId) : null;
@@ -241,10 +235,10 @@ export default function App() {
         onPlay={handlePlay}
         onStop={handleStop}
         onRecord={handleRecord}
-        onLoop={() => setLoop((l) => !l)}
-        onMetronome={() => setMetronome((m) => !m)}
+        onLoop={() => dispatch({ type: 'TOGGLE_LOOP' })}
+        onMetronome={() => dispatch({ type: 'TOGGLE_METRONOME' })}
         onBpm={(b) => {
-          setBpm(b);
+          dispatch({ type: 'SET_BPM', bpm: b });
           engineRef.current?.setTempo(b);
         }}
         view={view}
