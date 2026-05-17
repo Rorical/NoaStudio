@@ -7,7 +7,7 @@ import Mixer from './components/Mixer.jsx';
 import TweaksPanel from './components/TweaksPanel.jsx';
 import { TRACK_COLORS, PLUGINS, FILES } from './data.js';
 import { useEngine } from './engine/useEngine.js';
-import { useDispatch, useProject } from './coordinator/useProject.js';
+import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
 
 const selectTracks = (p) => p.tracks;
 const selectClips = (p) => p.clips;
@@ -23,6 +23,7 @@ export default function App() {
   const clips = useProject(selectClips);
   const channels = useProject(selectChannels);
   const dispatch = useDispatch();
+  const { canUndo, canRedo, undo, redo } = useUndoRedo();
   const [selectedClipId, setSelectedClipId] = useState('c20');
   const [selectedChannelId, setSelectedChannelId] = useState('m6');
   const [openClipId, setOpenClipId] = useState('c20');
@@ -49,6 +50,17 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      const cmd = e.ctrlKey || e.metaKey;
+      if (!cmd) return;
+      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo, redo]);
 
   const samplesAtPlayStartRef = useRef(0);
   const timeAtPlayStartRef = useRef(0);
@@ -247,6 +259,10 @@ export default function App() {
         onToggleBrowser={() => setBrowserOpen((o) => !o)}
         pianoOpen={pianoOpen}
         onTogglePiano={() => setPianoOpen((o) => !o)}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
         onOpenTweaks={() => setTweaksOpen((o) => !o)}
       />
 

@@ -5,7 +5,7 @@ export default function Toolbar({
   playing, onPlay, onStop, onRecord, recording, loop, onLoop,
   metronome, onMetronome, bpm, onBpm, time, timeSig, projectName, masterLevels,
   view, onView, browserOpen, onToggleBrowser, pianoOpen, onTogglePiano,
-  onOpenTweaks,
+  onOpenTweaks, onUndo, onRedo, canUndo, canRedo,
 }) {
   const [bpmEditing, setBpmEditing] = useState(false);
   const [bpmDraft, setBpmDraft] = useState(String(bpm));
@@ -173,8 +173,22 @@ export default function Toolbar({
           <Icon name="panel_bottom" size={18} />
         </button>
         <div className="actions-divider" />
-        <button className="btn-icon small" title="Undo"><Icon name="undo" size={18} /></button>
-        <button className="btn-icon small" title="Redo"><Icon name="redo" size={18} /></button>
+        <button
+          className="btn-icon small"
+          title="Undo (Ctrl+Z)"
+          onClick={onUndo}
+          disabled={!canUndo}
+        >
+          <Icon name="undo" size={18} />
+        </button>
+        <button
+          className="btn-icon small"
+          title="Redo (Ctrl+Shift+Z)"
+          onClick={onRedo}
+          disabled={!canRedo}
+        >
+          <Icon name="redo" size={18} />
+        </button>
         <button className="btn-icon small" title="Save"><Icon name="save" size={18} /></button>
         <button className="btn-icon small" title="Settings" onClick={onOpenTweaks}><Icon name="settings" size={18} /></button>
       </div>
