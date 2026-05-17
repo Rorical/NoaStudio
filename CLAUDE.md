@@ -8,14 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/` for smoke-testing.
 
-- `npm test` — Vitest unit tests (Node environment, no browser). All 25 tests across `RingBuffer`, `EngineEvent`, and `SineGenerator` suites should pass.
+- `npm test` — Vitest unit tests (Node environment, no browser). All 67 tests across 8 suites (engine + coordinator) should pass.
 - `npm run typecheck` — TypeScript type check (`tsc --noEmit`).
 
 For UI changes, run `npm run dev` and click through.
 
 ## Architecture
 
-Noa Studio is a browser-based DAW under active construction. As of Phase 1 (audio foundation), a real `AudioWorkletProcessor`-based engine lives under `src/engine/`. Transport time and the **master** meter are driven by the engine; per-channel mixer meters are still simulated. Plugins, persistence, and multi-track audio routing arrive in later phases — see `docs/superpowers/plans/2026-05-17-noa-daw-roadmap.md`.
+Noa Studio is a browser-based DAW under active construction. As of Phase 2, project state (tracks, clips, channels, BPM, loop, metronome) lives in a `SharedWorker` in `src/coordinator/`, persisted to OPFS and broadcast to all tabs. The audio engine (`src/engine/`, Phase 1) drives transport time and the master meter. Per-channel mixer meters and plugin sound are still simulated/placeholder. Plugins, full multi-track audio routing, and the rest of the engine-UI binding arrive in later phases — see `docs/superpowers/plans/2026-05-17-noa-daw-roadmap.md`.
 
 ### State lives in App.jsx
 
@@ -81,3 +81,18 @@ TypeScript module, isolated from the JSX UI. Communicates with the React tree vi
 - `EngineClient.ts` — Main-thread façade. Owns the `AudioContext` + `AudioWorkletNode`. Requires `crossOriginIsolated === true` (enforced by COOP/COEP headers in `vite.config.js`).
 
 Tests live under `src/engine/**/__tests__/*.test.ts` and run via `npm test` (Vitest, Node environment). Anything that touches `AudioContext` is verified by manual browser smoke tests, not unit tests.
+
+### Coordinator module (`src/coordinator/`)
+
+TypeScript module hosting a `SharedWorker` that owns the canonical project state.
+
+- `projectModel.ts` — `Project` shape (tracks, clips, channels, bpm, loop, metronome) + `seedProject()` that materializes the data.js demo as a typed value.
+- `actions.ts` — Discriminated-union `Action` type. Every mutation is an action.
+- `reducer.ts` — Pure `applyAction(state, action) → [next, patches, inversePatches]` via Immer's `produceWithPatches`. Unknown IDs are no-ops. Calls `enablePatches()` at module load (Immer 10 requires it for patch support).
+- `history.ts` — Undo/redo as a stack of patch transactions. Capped at 100 entries. Callers (the worker) must guard against empty-patch transactions; the stack itself does not.
+- `protocol.ts` — `ClientToWorker` / `WorkerToClient` message envelopes.
+- `persistence.ts` — `OpfsProjectStore` (read/write `project.json` in OPFS) + `DebouncedSaver` (250ms coalescing).
+- `coordinator.worker.ts` — `SharedWorker` entry. Owns state, accepts ports, broadcasts patches.
+- `ClientBridge.ts` — Main-thread adapter. Mirrors state via `applyPatches`; exposes `dispatch`/`undo`/`redo`/`subscribe`.
+- `useProject.js` — React hooks (`useProject(selector)`, `useDispatch()`, `useUndoRedo()`) over `useSyncExternalStore`. Selectors must be stable references — module-scope is the cleanest pattern (e.g. `const selectTracks = (p) => p.tracks;`).
+- `connectCoordinator.js` — Singleton bridge; first call creates the `SharedWorker`, subsequent calls return the same bridge.
