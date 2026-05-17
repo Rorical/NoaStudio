@@ -16,6 +16,6 @@
     "noEmit": true,
     "jsx": "preserve"
   },
-  "include": ["src/engine/**/*.ts"],
+  "include": ["src/engine/**/*.ts", "src/coordinator/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

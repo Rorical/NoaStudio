@@ -22,12 +22,14 @@ export default defineConfig({
       input: {
         main: resolve(import.meta.dirname, 'index.html'),
         'audio-worklet': resolve(import.meta.dirname, 'src/engine/audio-worklet.ts'),
+        'coordinator-worker': resolve(import.meta.dirname, 'src/coordinator/coordinator.worker.ts'),
       },
       output: {
-        entryFileNames: (chunk) =>
-          chunk.name === 'audio-worklet'
-            ? 'audio-worklet.js'
-            : 'assets/[name]-[hash].js',
+        entryFileNames: (chunk) => {
+          if (chunk.name === 'audio-worklet') return 'audio-worklet.js';
+          if (chunk.name === 'coordinator-worker') return 'coordinator-worker.js';
+          return 'assets/[name]-[hash].js';
+        },
       },
     },
   },
