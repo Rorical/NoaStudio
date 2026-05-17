@@ -1,0 +1,170 @@
+/* Material 3 tokens — Noa Studio */
+:root,
+[data-theme="dark"] {
+  --m3-primary: #b8a4ff;
+  --m3-on-primary: #2a1a6b;
+  --m3-primary-container: #4a36a3;
+  --m3-on-primary-container: #e7dfff;
+  --m3-accent: #7c5cff;
+
+  --m3-surface: #121316;
+  --m3-surface-dim: #0d0e11;
+  --m3-surface-container-lowest: #0a0b0e;
+  --m3-surface-container-low: #16181c;
+  --m3-surface-container: #1c1e22;
+  --m3-surface-container-high: #25272d;
+  --m3-surface-container-highest: #2f3137;
+
+  --m3-on-surface: #e6e7ec;
+  --m3-on-surface-variant: #a8a9b3;
+  --m3-on-surface-faint: #6e6f78;
+
+  --m3-outline: #45464f;
+  --m3-outline-variant: #2a2c33;
+
+  --m3-error: #ffb4ab;
+  --m3-success: #5ce2a0;
+
+  --m3-shadow: 0 1px 2px rgba(0,0,0,0.5), 0 1px 3px 1px rgba(0,0,0,0.3);
+  --m3-shadow-lg: 0 4px 8px 3px rgba(0,0,0,0.45), 0 1px 3px rgba(0,0,0,0.6);
+
+  --grid-line: rgba(255,255,255,0.04);
+  --grid-line-bar: rgba(255,255,255,0.09);
+}
+
+[data-theme="light"] {
+  --m3-primary: #5a3fc6;
+  --m3-on-primary: #ffffff;
+  --m3-primary-container: #e7dfff;
+  --m3-on-primary-container: #1a0866;
+  --m3-accent: #6750a4;
+
+  --m3-surface: #fbf8ff;
+  --m3-surface-dim: #dcd7e5;
+  --m3-surface-container-lowest: #ffffff;
+  --m3-surface-container-low: #f5f1fc;
+  --m3-surface-container: #eee8f7;
+  --m3-surface-container-high: #e8e2f2;
+  --m3-surface-container-highest: #e1dcec;
+
+  --m3-on-surface: #1c1b1f;
+  --m3-on-surface-variant: #49454e;
+  --m3-on-surface-faint: #7a7682;
+
+  --m3-outline: #79747e;
+  --m3-outline-variant: #cac4d0;
+
+  --m3-shadow: 0 1px 2px rgba(40,30,80,0.08), 0 1px 3px 1px rgba(40,30,80,0.06);
+  --m3-shadow-lg: 0 4px 8px 3px rgba(40,30,80,0.10), 0 1px 3px rgba(40,30,80,0.08);
+
+  --grid-line: rgba(20,15,40,0.06);
+  --grid-line-bar: rgba(20,15,40,0.12);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 14px;
+  background: var(--m3-surface);
+  color: var(--m3-on-surface);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+#root {
+  display: grid;
+  grid-template-rows: 64px 1fr 28px;
+  height: 100vh;
+}
+
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+/* Material 3 surface helpers */
+.surface-1 { background: var(--m3-surface-container-low); }
+.surface-2 { background: var(--m3-surface-container); }
+.surface-3 { background: var(--m3-surface-container-high); }
+
+/* Material 3 state layers */
+.btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--m3-on-surface);
+  font: inherit;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 8px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  transition: background 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.btn:hover { background: color-mix(in oklab, var(--m3-on-surface) 8%, transparent); }
+.btn:active { background: color-mix(in oklab, var(--m3-on-surface) 12%, transparent); }
+.btn-filled { background: var(--m3-primary); color: var(--m3-on-primary); font-weight: 600; }
+.btn-filled:hover { background: color-mix(in oklab, var(--m3-primary) 92%, white 8%); }
+.btn-tonal { background: var(--m3-primary-container); color: var(--m3-on-primary-container); font-weight: 500; }
+.btn-tonal:hover { background: color-mix(in oklab, var(--m3-primary-container) 92%, white 8%); }
+.btn-icon {
+  width: 40px; height: 40px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+}
+.btn-icon.small { width: 32px; height: 32px; }
+.btn-icon.tiny { width: 24px; height: 24px; }
+
+/* Material Symbols-style icons rendered as inline SVG, no font dependency */
+.icon { width: 20px; height: 20px; flex-shrink: 0; }
+.icon.sm { width: 16px; height: 16px; }
+.icon.lg { width: 24px; height: 24px; }
+
+/* Chips */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--m3-surface-container-high);
+  border: 1px solid var(--m3-outline-variant);
+  font-size: 13px;
+  color: var(--m3-on-surface);
+  cursor: pointer;
+  user-select: none;
+}
+.chip:hover { background: var(--m3-surface-container-highest); }
+.chip.active { background: var(--m3-primary-container); color: var(--m3-on-primary-container); border-color: transparent; }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--m3-outline-variant); border-radius: 5px; border: 2px solid var(--m3-surface); }
+::-webkit-scrollbar-thumb:hover { background: var(--m3-outline); }
+
+/* Common utility */
+.divider { background: var(--m3-outline-variant); }
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+
+/* Smooth focus ring */
+:focus-visible { outline: 2px solid var(--m3-primary); outline-offset: 2px; }
+button:focus { outline: none; }
+button:focus-visible { outline: 2px solid var(--m3-primary); outline-offset: 2px; }
+
+/* Track palette — used by playlist clips & mixer channels */
+.track-color-0 { --track: #ff6b9d; }
+.track-color-1 { --track: #ffb84d; }
+.track-color-2 { --track: #ffe45c; }
+.track-color-3 { --track: #5ce2a0; }
+.track-color-4 { --track: #5cc8ff; }
+.track-color-5 { --track: #b8a4ff; }
+.track-color-6 { --track: #ff8ad6; }
+.track-color-7 { --track: #ff7a6e; }
