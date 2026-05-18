@@ -56,9 +56,11 @@
 
 ---
 
-## Phase 3 — WASM plugin ABI v1
+## Phase 3 — WASM plugin ABI v1 ✓ shipped 2026-05-18
 
 **Delivers:** A documented `.noaplugin` package format and a host runtime that can load, instantiate, and process audio through a third-party WASM plugin — *with* a floating, draggable HTML UI per instance, communicating with the audio core in real time. The Phase 1 sine generator is replaced by a built-in WASM module compiled from a sample plugin source.
+
+**Shipped:** ABI v1 (`docs/plugin-abi-v1.md`), AssemblyScript toolchain, `PluginInstance` + `PluginChain` + `PluginRegistry` + `WorkletProtocol` + `PluginUIHost` + `PluginUIProtocol`, two built-in plugins (`com.noa.sine`, `com.noa.gain`) with HTML UIs, Mixer integration, coordinator `PluginInstance` model. 147 unit tests across 15 suites. ZIP packaging (`.noaplugin`) deferred to Phase 5.
 
 **Components introduced:**
 
