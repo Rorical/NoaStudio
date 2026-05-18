@@ -98,9 +98,11 @@
 
 ---
 
-## Phase 4 — Plugin host workers
+## Phase 4 — Plugin host workers ✓ shipped 2026-05-18
 
 **Delivers:** Plugins that can do heavy non-RT work (preset loading, FFT analysis, GUI state) without glitching audio. The RT path stays in the worklet; non-RT work moves to a dedicated `Worker` per plugin instance.
+
+**Shipped:** ABI v1.1 optional preset exports (`noa_preset_prepare` / `noa_preset_get_state_size` / `noa_preset_serialize` / `noa_preset_free`), per-instance JS Worker with its own WASM instance (`PluginWorker` / `PluginWorkerCore` / `plugin-host.worker.ts`), `WorkletProtocol.applyPresetState`, `EngineClient.preparePreset` + `activatePreset` + `freePreset`, sine plugin preset bank with a 30ms synthetic delay in `noa_preset_prepare` to prove glitch-free hot-swap. 182 unit tests across 17 suites. Oscilloscope worked example (Phase 4b) deferred — the worker infrastructure is in place for future per-instance analysis features.
 
 **Components introduced:**
 - `src/engine/plugin-host.worker.ts` — Per-plugin-instance worker. Holds the canonical plugin state (a second WASM instance, or shared memory with the RT instance — TBD in spec).

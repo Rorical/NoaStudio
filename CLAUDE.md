@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/` for smoke-testing.
 
-- `npm test` — Vitest unit tests (Node environment, no browser). All 147 tests across 15 suites (engine + coordinator + built-in plugins) should pass.
+- `npm test` — Vitest unit tests (Node environment, no browser). All 182 tests across 17 suites (engine + coordinator + built-in plugins) should pass.
 - `npm run build:plugins` — Optional. Rebuilds the AssemblyScript-authored plugins in `src/engine/__tests__/fixtures/` and `src/builtin-plugins/`. The compiled `.wasm` artifacts are committed; this script is only needed after editing a plugin's AS source.
 - `npm run typecheck` — TypeScript type check (`tsc --noEmit`).
 
@@ -16,7 +16,7 @@ For UI changes, run `npm run dev` and click through.
 
 ## Architecture
 
-Noa Studio is a browser-based DAW under active construction. As of Phase 3, audio is produced by **WASM plugins** loaded through the Noa Plugin ABI v1 (see `docs/plugin-abi-v1.md`). Two built-in plugins ship in `src/builtin-plugins/`: `com.noa.sine` (8-voice polyphonic sine generator) and `com.noa.gain` (linear gain insert). Each plugin can ship a floating HTML UI hosted in a sandboxed iframe. Project state (tracks, clips, channels, BPM, loop, metronome, plugin instances) lives in a `SharedWorker` in `src/coordinator/`, persisted to OPFS. Per-channel mixer meters are still simulated; multi-track audio routing arrives in Phase 6 — see `docs/superpowers/plans/2026-05-17-noa-daw-roadmap.md`.
+Noa Studio is a browser-based DAW under active construction. As of Phase 4, audio is produced by **WASM plugins** loaded through the Noa Plugin ABI v1 (with v1.1 preset-hot-swap extensions, see `docs/plugin-abi-v1.md`). Two built-in plugins ship in `src/builtin-plugins/`: `com.noa.sine` (8-voice polyphonic sine generator with a 3-preset bank demonstrating glitch-free hot-swap) and `com.noa.gain` (linear gain insert). Each plugin's RT processing runs in the audio worklet; a per-instance JS `Worker` handles slow non-RT work like preset compilation. Each plugin can ship a floating HTML UI hosted in a sandboxed iframe. Project state (tracks, clips, channels, BPM, loop, metronome, plugin instances) lives in a `SharedWorker` in `src/coordinator/`, persisted to OPFS. Per-channel mixer meters are still simulated; multi-track audio routing arrives in Phase 6 — see `docs/superpowers/plans/2026-05-17-noa-daw-roadmap.md`.
 
 ### State lives in App.jsx
 
@@ -81,16 +81,21 @@ TypeScript module, isolated from the JSX UI. Communicates with the React tree vi
 - `audio-worklet.ts` — `AudioWorkletProcessor` shim. Drives a `PluginChain` (signal chain), drains the global event ring routing frames to chain slots by `targetId`, publishes per-block meter frames and a sample-counter telemetry SAB.
 - `EngineClient.ts` — Main-thread façade. Owns the `AudioContext` + `AudioWorkletNode`. Requires `crossOriginIsolated === true` (enforced by COOP/COEP headers in `vite.config.js`). Exposes `loadPlugin` / `unloadInstance` (via `WorkletProtocol`) and `setParam` / `noteOn` / etc.
 
-**Plugin ABI v1 — see `docs/plugin-abi-v1.md` for the authoritative author-facing spec:**
-- `PluginAbi.ts` — `ABI_VERSION = 1` constant + table of export symbol names. Toolchain-agnostic.
+**Plugin ABI v1 + v1.1 — see `docs/plugin-abi-v1.md` for the authoritative author-facing spec:**
+- `PluginAbi.ts` — `ABI_VERSION = 1` constant + table of export symbol names. v1.0 surface plus optional v1.1 `noa_preset_prepare` / `noa_preset_get_state_size` / `noa_preset_serialize` / `noa_preset_free`. Toolchain-agnostic.
 - `PluginManifest.ts` — Manifest schema validator. Manifests carry `id`, `name`, `version`, `abi_version`, `kind: 'gen' | 'fx'`, `params: ParamDecl[]`, optional `ui: { entry, width, height }`.
-- `PluginInstance.ts` — One running WASM plugin. Sync `fromModule(module, manifest, opts)` for the worklet; async `fromBytes` for Node-based tests. When constructed with `allocateRings: true` the instance owns per-instance event/notify SAB rings exposed as public fields. Methods: `setParam`, `readParam`, `pushEvents`, `writeInput`, `readOutput`, `process`, `getState`, `setState`, `drainParamRing`, `pushNotifyParamChanged`, `destroy`.
+- `PluginInstance.ts` — One running WASM plugin. Sync `fromModule(module, manifest, opts)` for the worklet/worker; async `fromBytes` for Node-based tests. When constructed with `allocateRings: true` the instance owns per-instance event/notify SAB rings exposed as public fields. Methods: `setParam`, `readParam`, `pushEvents`, `writeInput`, `readOutput`, `process`, `getState`, `setState`, `drainParamRing`, `pushNotifyParamChanged`, `hasPresetSupport`, `preparePreset`, `serializePreset`, `freePreset`, `destroy`.
 - `PluginChain.ts` — Linear signal chain hosted by the worklet. `install(slot, instance)` / `uninstall(slot)` / `queueEventFrame(slot, frame)` / `processBlock(blockSize, outBus)`. Slot 0 conventionally holds the generator (events with `targetId === 0` go here); slots 1..N are insert FX taking the previous slot's output as input. Multi-channel routing is Phase 6.
 - `PluginRegistry.ts` — Main-thread catalog of installed plugins. `install` / `has` / `get` / `list`, plus `static loadBuiltin(baseUrl)` for the canonical `plugin.json` + `plugin.wasm` + `ui/<entry>` folder layout.
-- `WorkletProtocol.ts` — Pure protocol class wrapping a `MessagePort`-shaped object. `loadPlugin(args)` posts `INSTANTIATE_PLUGIN` and awaits the matching `INSTANCE_READY` (carrying both ring SABs). Used by EngineClient; tested with a hand-rolled port stub.
-- `PluginUIProtocol.ts` — Iframe ↔ host postMessage envelopes: `HELLO` (host → iframe, carries manifest + initialParams + ring SABs), `READY` (iframe → host on load), `STATE_RESTORE` / `STATE_SNAPSHOT_*` (defined, no Phase 3 consumers). Plus `isReady` / `isStateSnapshot*` validators.
-- `PluginUIHost.ts` — Per-instance iframe lifecycle. Builds a Blob URL from the plugin's HTML with a vanilla-JS bootstrap prepended that exposes `window.__noa = { manifest, initialParams, onReady, setParam(idx, value), pollNotify() }`. Plugin HTML never touches the binary ring layout directly. Sandbox is `allow-scripts allow-same-origin` — `allow-same-origin` is required for SAB postMessage across the iframe boundary.
+- `WorkletProtocol.ts` — Pure protocol class wrapping a `MessagePort`-shaped object. `loadPlugin(args)` posts `INSTANTIATE_PLUGIN` and awaits the matching `INSTANCE_READY` (carrying both ring SABs). `applyPresetState(slot, bytes)` posts `APPLY_PRESET_STATE` for ABI v1.1 hot-swap. Used by EngineClient; tested with a hand-rolled port stub.
+- `PluginWorker.ts` (ABI v1.1, Phase 4) — Main-thread façade over a per-instance JS Worker. `spawn(args)` posts HELLO + awaits READY; `preparePreset(bytes)` posts PREPARE_PRESET, resolves with `{handle, stateBytes}` once the worker compiles the preset on its second WASM instance; `freePreset(handle)` is fire-and-forget. Takes a `MessagePortLike` so unit tests use a fake port; production callers wrap a real `Worker`.
+- `PluginWorkerCore.ts` (Phase 4) — Platform-agnostic message handler that drives the worker's PluginInstance. Tested directly in Node.
+- `plugin-host.worker.ts` (Phase 4) — Worker entry. Wires `self.onmessage` to a `PluginWorkerCore` instance; ~10 LoC.
+- `PluginUIProtocol.ts` — Iframe ↔ host postMessage envelopes: `HELLO` (host → iframe, carries manifest + initialParams + ring SABs), `READY` (iframe → host on load), `STATE_RESTORE` / `STATE_SNAPSHOT_*` (defined, no v1 consumers), `PRESET_REQUEST` (iframe → host, ABI v1.1). Plus `isReady` / `isStateSnapshot*` / `isPresetRequest` validators.
+- `PluginUIHost.ts` — Per-instance iframe lifecycle. Builds a Blob URL from the plugin's HTML with a vanilla-JS bootstrap prepended that exposes `window.__noa = { manifest, initialParams, onReady, setParam(idx, value), pollNotify(), applyPreset(bytes) }`. Plugin HTML never touches the binary ring layout directly. Sandbox is `allow-scripts allow-same-origin` — `allow-same-origin` is required for SAB postMessage across the iframe boundary.
 - `bootBuiltins.js` — Boot helper that builds a `PluginRegistry` containing both built-in plugins (manifest + compiled WebAssembly.Module + UI HTML). Vite resolves the JSON / `?url` / `?raw` imports at build time.
+
+**EngineClient orchestration (Phase 4):** `loadPlugin(args)` now spawns a per-instance Worker alongside the worklet's INSTANTIATE_PLUGIN. The Worker is constructed from `plugin-host.worker.ts`; `EngineClient` tracks `{slot, worker, pluginWorker}` per instance and exposes `preparePreset` / `activatePreset` / `freePreset`. `unloadInstance(instanceId)` tears down both sides; `dispose()` terminates every spawned worker.
 
 Tests live under `src/engine/**/__tests__/*.test.ts` and run via `npm test` (Vitest, Node environment). Anything that touches `AudioContext` or a real iframe is verified by manual browser smoke tests, not unit tests.
 
