@@ -4,7 +4,7 @@ import path from 'node:path';
 import { PluginRegistry } from '../PluginRegistry';
 import { parseManifest, type PluginManifest } from '../PluginManifest';
 
-let module: WebAssembly.Module;
+let wasm: Uint8Array;
 const manifest: PluginManifest = parseManifest({
   id: 'com.noa.test',
   name: 'Test',
@@ -16,15 +16,14 @@ const manifest: PluginManifest = parseManifest({
 
 beforeAll(async () => {
   const buf = await readFile(path.resolve('src/engine/__tests__/fixtures/test-plugin/plugin.wasm'));
-  const ab = new ArrayBuffer(buf.byteLength);
-  new Uint8Array(ab).set(buf);
-  module = await WebAssembly.compile(ab);
+  wasm = new Uint8Array(buf.byteLength);
+  wasm.set(buf);
 });
 
 describe('PluginRegistry', () => {
   it('registers and retrieves an entry', () => {
     const reg = new PluginRegistry();
-    reg.install({ manifest, module, uiAssets: new Map() });
+    reg.install({ manifest, wasm, uiAssets: new Map() });
     expect(reg.has('com.noa.test')).toBe(true);
     expect(reg.get('com.noa.test').manifest.name).toBe('Test');
     expect(reg.list()).toHaveLength(1);
@@ -32,8 +31,8 @@ describe('PluginRegistry', () => {
 
   it('rejects duplicate ids', () => {
     const reg = new PluginRegistry();
-    reg.install({ manifest, module, uiAssets: new Map() });
-    expect(() => reg.install({ manifest, module, uiAssets: new Map() })).toThrow(/already installed/);
+    reg.install({ manifest, wasm, uiAssets: new Map() });
+    expect(() => reg.install({ manifest, wasm, uiAssets: new Map() })).toThrow(/already installed/);
   });
 
   it('get throws on unknown id', () => {
@@ -45,8 +44,8 @@ describe('PluginRegistry', () => {
     const reg = new PluginRegistry();
     const m2 = parseManifest({ ...manifest, id: 'com.noa.b' });
     const m3 = parseManifest({ ...manifest, id: 'com.noa.a' });
-    reg.install({ manifest: m2, module, uiAssets: new Map() });
-    reg.install({ manifest: m3, module, uiAssets: new Map() });
+    reg.install({ manifest: m2, wasm, uiAssets: new Map() });
+    reg.install({ manifest: m3, wasm, uiAssets: new Map() });
     expect(reg.list().map((e) => e.manifest.id)).toEqual(['com.noa.b', 'com.noa.a']);
   });
 });

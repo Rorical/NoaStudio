@@ -4,7 +4,8 @@ import type { PluginManifest } from './PluginManifest';
 interface HelloMessage {
   type: 'HELLO';
   instanceId: string;
-  module: WebAssembly.Module;
+  /** Raw WASM bytes — worker compiles synchronously in its own context. */
+  wasm: Uint8Array;
   manifest: PluginManifest;
   sampleRate: number;
   maxBlockSize: number;
@@ -70,7 +71,8 @@ export class PluginWorkerCore {
       return;
     }
     try {
-      this.instance = PluginInstance.fromModule(msg.module, msg.manifest, {
+      const module = new WebAssembly.Module(msg.wasm as unknown as BufferSource);
+      this.instance = PluginInstance.fromModule(module, msg.manifest, {
         sampleRate: msg.sampleRate,
         maxBlockSize: msg.maxBlockSize,
       });

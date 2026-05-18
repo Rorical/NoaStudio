@@ -4,26 +4,25 @@ import path from 'node:path';
 import { PluginWorkerCore } from '../PluginWorkerCore';
 import { parseManifest, type PluginManifest } from '../PluginManifest';
 
-let presetModule: WebAssembly.Module;
+let presetWasm: Uint8Array;
 let presetManifest: PluginManifest;
-let testModule: WebAssembly.Module;
+let testWasm: Uint8Array;
 let testManifest: PluginManifest;
 
-async function loadModule(folder: string): Promise<{ module: WebAssembly.Module; manifest: PluginManifest }> {
+async function loadFixture(folder: string): Promise<{ wasm: Uint8Array; manifest: PluginManifest }> {
   const raw = await readFile(path.join(folder, 'plugin.wasm'));
-  const ab = new ArrayBuffer(raw.byteLength);
-  new Uint8Array(ab).set(raw);
-  const module = await WebAssembly.compile(ab);
+  const wasm = new Uint8Array(raw.byteLength);
+  wasm.set(raw);
   const manifest = parseManifest(
     JSON.parse((await readFile(path.join(folder, 'plugin.json'))).toString('utf8')),
   );
-  return { module, manifest };
+  return { wasm, manifest };
 }
 
 beforeAll(async () => {
   const fixturesDir = path.resolve('src/engine/__tests__/fixtures');
-  ({ module: presetModule, manifest: presetManifest } = await loadModule(path.join(fixturesDir, 'preset-test')));
-  ({ module: testModule, manifest: testManifest } = await loadModule(path.join(fixturesDir, 'test-plugin')));
+  ({ wasm: presetWasm, manifest: presetManifest } = await loadFixture(path.join(fixturesDir, 'preset-test')));
+  ({ wasm: testWasm, manifest: testManifest } = await loadFixture(path.join(fixturesDir, 'test-plugin')));
 });
 
 function makePresetPayload(a: number, b: number): Uint8Array {
@@ -40,7 +39,7 @@ describe('PluginWorkerCore', () => {
     const core = new PluginWorkerCore();
     const replies: unknown[] = [];
     core.handle(
-      { type: 'HELLO', instanceId: 'i_a', module: presetModule, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 },
+      { type: 'HELLO', instanceId: 'i_a', wasm: presetWasm, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 },
       (m) => replies.push(m),
     );
     expect(replies).toEqual([{ type: 'READY' }]);
@@ -51,7 +50,7 @@ describe('PluginWorkerCore', () => {
     const core = new PluginWorkerCore();
     const replies: any[] = [];
     const send = (m: unknown) => replies.push(m);
-    core.handle({ type: 'HELLO', instanceId: 'i_b', module: presetModule, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
+    core.handle({ type: 'HELLO', instanceId: 'i_b', wasm: presetWasm, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
     core.handle({ type: 'PREPARE_PRESET', requestId: 'r1', bytes: makePresetPayload(0.4, 0.6) }, send);
     const presetReply = replies[1];
     expect(presetReply.type).toBe('PRESET_PREPARED');
@@ -68,7 +67,7 @@ describe('PluginWorkerCore', () => {
     const core = new PluginWorkerCore();
     const replies: any[] = [];
     const send = (m: unknown) => replies.push(m);
-    core.handle({ type: 'HELLO', instanceId: 'i_c', module: presetModule, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
+    core.handle({ type: 'HELLO', instanceId: 'i_c', wasm: presetWasm, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
     core.handle({ type: 'PREPARE_PRESET', requestId: 'rX', bytes: new Uint8Array([1, 2, 3]) }, send);
     const reply = replies[1];
     expect(reply.type).toBe('PRESET_PREPARE_FAILED');
@@ -89,7 +88,7 @@ describe('PluginWorkerCore', () => {
     const core = new PluginWorkerCore();
     const replies: any[] = [];
     const send = (m: unknown) => replies.push(m);
-    core.handle({ type: 'HELLO', instanceId: 'i_v10', module: testModule, manifest: testManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
+    core.handle({ type: 'HELLO', instanceId: 'i_v10', wasm: testWasm, manifest: testManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
     core.handle({ type: 'PREPARE_PRESET', requestId: 'rZ', bytes: new Uint8Array(12) }, send);
     const reply = replies[1];
     expect(reply.type).toBe('PRESET_PREPARE_FAILED');
@@ -108,7 +107,7 @@ describe('PluginWorkerCore', () => {
     const core = new PluginWorkerCore();
     const replies: any[] = [];
     const send = (m: unknown) => replies.push(m);
-    core.handle({ type: 'HELLO', instanceId: 'i_f', module: presetModule, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
+    core.handle({ type: 'HELLO', instanceId: 'i_f', wasm: presetWasm, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
     // Fill all 4 fixture slots.
     for (let i = 0; i < 4; i++) {
       core.handle({ type: 'PREPARE_PRESET', requestId: 'fill' + i, bytes: makePresetPayload(0.1 * (i + 1), 0) }, send);
@@ -129,7 +128,7 @@ describe('PluginWorkerCore', () => {
     const core = new PluginWorkerCore();
     const replies: unknown[] = [];
     const send = (m: unknown) => replies.push(m);
-    core.handle({ type: 'HELLO', instanceId: 'i_d', module: presetModule, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
+    core.handle({ type: 'HELLO', instanceId: 'i_d', wasm: presetWasm, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
     core.destroy();
     replies.length = 0;
     core.handle({ type: 'PREPARE_PRESET', requestId: 'after', bytes: makePresetPayload(0, 0) }, send);
@@ -140,8 +139,8 @@ describe('PluginWorkerCore', () => {
     const core = new PluginWorkerCore();
     const replies: any[] = [];
     const send = (m: unknown) => replies.push(m);
-    core.handle({ type: 'HELLO', instanceId: 'i_h', module: presetModule, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
-    core.handle({ type: 'HELLO', instanceId: 'i_h', module: presetModule, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
+    core.handle({ type: 'HELLO', instanceId: 'i_h', wasm: presetWasm, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
+    core.handle({ type: 'HELLO', instanceId: 'i_h', wasm: presetWasm, manifest: presetManifest, sampleRate: 48000, maxBlockSize: 128 }, send);
     expect(replies[0]).toEqual({ type: 'READY' });
     expect((replies[1] as { type: string }).type).toBe('PRESET_PREPARE_FAILED');
     core.destroy();

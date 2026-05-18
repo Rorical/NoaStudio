@@ -22,14 +22,13 @@ function makePort() {
   };
 }
 
-let module: WebAssembly.Module;
+let wasm: Uint8Array;
 let manifest: PluginManifest;
 
 beforeAll(async () => {
   const buf = await readFile(path.resolve('src/engine/__tests__/fixtures/preset-test/plugin.wasm'));
-  const ab = new ArrayBuffer(buf.byteLength);
-  new Uint8Array(ab).set(buf);
-  module = await WebAssembly.compile(ab);
+  wasm = new Uint8Array(buf.byteLength);
+  wasm.set(buf);
   manifest = parseManifest({
     id: 'com.noa.preset-test', name: 'Preset Test', version: '0.0.1', abi_version: 1, kind: 'fx',
     params: [
@@ -40,18 +39,18 @@ beforeAll(async () => {
 });
 
 describe('PluginWorker.spawn', () => {
-  it('posts HELLO carrying module + manifest + audio config', () => {
+  it('posts HELLO carrying wasm bytes + manifest + audio config', () => {
     const { port, outgoing } = makePort();
     const w = new PluginWorker(port);
-    void w.spawn({ instanceId: 'i_a', module, manifest, sampleRate: 48000, maxBlockSize: 128 });
+    void w.spawn({ instanceId: 'i_a', wasm, manifest, sampleRate: 48000, maxBlockSize: 128 });
     expect(outgoing).toHaveLength(1);
     const msg = outgoing[0] as {
-      type: string; instanceId: string; module: WebAssembly.Module; manifest: PluginManifest;
+      type: string; instanceId: string; wasm: Uint8Array; manifest: PluginManifest;
       sampleRate: number; maxBlockSize: number;
     };
     expect(msg.type).toBe('HELLO');
     expect(msg.instanceId).toBe('i_a');
-    expect(msg.module).toBe(module);
+    expect(msg.wasm).toBe(wasm);
     expect(msg.manifest.id).toBe('com.noa.preset-test');
     expect(msg.sampleRate).toBe(48000);
     expect(msg.maxBlockSize).toBe(128);
@@ -60,7 +59,7 @@ describe('PluginWorker.spawn', () => {
   it('resolves on READY', async () => {
     const { port, fire } = makePort();
     const w = new PluginWorker(port);
-    const p = w.spawn({ instanceId: 'i_b', module, manifest, sampleRate: 48000, maxBlockSize: 128 });
+    const p = w.spawn({ instanceId: 'i_b', wasm, manifest, sampleRate: 48000, maxBlockSize: 128 });
     fire({ type: 'READY' });
     await expect(p).resolves.toBeUndefined();
   });
@@ -68,9 +67,9 @@ describe('PluginWorker.spawn', () => {
   it('rejects if spawn is called twice', async () => {
     const { port } = makePort();
     const w = new PluginWorker(port);
-    void w.spawn({ instanceId: 'i_c', module, manifest, sampleRate: 48000, maxBlockSize: 128 });
+    void w.spawn({ instanceId: 'i_c', wasm, manifest, sampleRate: 48000, maxBlockSize: 128 });
     await expect(
-      w.spawn({ instanceId: 'i_c', module, manifest, sampleRate: 48000, maxBlockSize: 128 }),
+      w.spawn({ instanceId: 'i_c', wasm, manifest, sampleRate: 48000, maxBlockSize: 128 }),
     ).rejects.toThrow(/already/);
   });
 });
@@ -79,7 +78,7 @@ describe('PluginWorker.preparePreset', () => {
   async function ready() {
     const ctx = makePort();
     const w = new PluginWorker(ctx.port);
-    const p = w.spawn({ instanceId: 'i_r', module, manifest, sampleRate: 48000, maxBlockSize: 128 });
+    const p = w.spawn({ instanceId: 'i_r', wasm, manifest, sampleRate: 48000, maxBlockSize: 128 });
     ctx.fire({ type: 'READY' });
     await p;
     return { ...ctx, w };
@@ -141,7 +140,7 @@ describe('PluginWorker.freePreset', () => {
   it('posts FREE_PRESET with the handle', async () => {
     const ctx = makePort();
     const w = new PluginWorker(ctx.port);
-    const p = w.spawn({ instanceId: 'i_f', module, manifest, sampleRate: 48000, maxBlockSize: 128 });
+    const p = w.spawn({ instanceId: 'i_f', wasm, manifest, sampleRate: 48000, maxBlockSize: 128 });
     ctx.fire({ type: 'READY' });
     await p;
     ctx.outgoing.length = 0;
@@ -154,7 +153,7 @@ describe('PluginWorker.dispose', () => {
   it('rejects every pending request', async () => {
     const ctx = makePort();
     const w = new PluginWorker(ctx.port);
-    const sp = w.spawn({ instanceId: 'i_d', module, manifest, sampleRate: 48000, maxBlockSize: 128 });
+    const sp = w.spawn({ instanceId: 'i_d', wasm, manifest, sampleRate: 48000, maxBlockSize: 128 });
     ctx.fire({ type: 'READY' });
     await sp;
     const a = w.preparePreset(new Uint8Array(12));
@@ -169,7 +168,7 @@ describe('PluginWorker.dispose', () => {
     const w = new PluginWorker(port);
     w.dispose();
     await expect(
-      w.spawn({ instanceId: 'i_x', module, manifest, sampleRate: 48000, maxBlockSize: 128 }),
+      w.spawn({ instanceId: 'i_x', wasm, manifest, sampleRate: 48000, maxBlockSize: 128 }),
     ).rejects.toThrow(/disposed/);
   });
 

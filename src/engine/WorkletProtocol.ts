@@ -14,7 +14,12 @@ export interface LoadPluginArgs {
   instanceId: string;
   /** Slot index inside the worklet's signal chain. */
   slot: number;
-  module: WebAssembly.Module;
+  /**
+   * Raw WASM bytes. The worklet compiles synchronously via
+   * `new WebAssembly.Module(wasm)` because Module instances are not
+   * structured-cloneable to AudioWorkletGlobalScope (crbug.com/1078182).
+   */
+  wasm: Uint8Array;
   manifest: PluginManifest;
   /** Optional initial param values; defaults to the plugin's manifest defaults if omitted. */
   initialParams?: number[];
@@ -71,7 +76,7 @@ export class WorkletProtocol {
         type: 'INSTANTIATE_PLUGIN',
         instanceId: args.instanceId,
         slot: args.slot,
-        module: args.module,
+        wasm: args.wasm,
         manifest: args.manifest,
         ...(args.initialParams ? { initialParams: args.initialParams } : {}),
       });

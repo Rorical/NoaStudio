@@ -118,7 +118,7 @@ export default function App() {
             const result = await engine.loadPlugin({
               instanceId: instance.id,
               slot,
-              module: entry.module,
+              wasm: entry.wasm,
               manifest: entry.manifest,
               initialParams,
             });

@@ -25,15 +25,14 @@ function makePort() {
   };
 }
 
-let module: WebAssembly.Module;
+let wasm: Uint8Array;
 let manifest: PluginManifest;
 
 beforeAll(async () => {
-  // A real compiled module so the test exercises postMessage with the real shape.
+  // Real WASM bytes so the test exercises postMessage with the real shape.
   const buf = await readFile(path.resolve('src/engine/__tests__/fixtures/test-plugin/plugin.wasm'));
-  const ab = new ArrayBuffer(buf.byteLength);
-  new Uint8Array(ab).set(buf);
-  module = await WebAssembly.compile(ab);
+  wasm = new Uint8Array(buf.byteLength);
+  wasm.set(buf);
   manifest = parseManifest({
     id: 'com.noa.test',
     name: 'Test', version: '0.0.1', abi_version: 1, kind: 'fx',
@@ -45,21 +44,21 @@ describe('WorkletProtocol.loadPlugin', () => {
   it('posts INSTANTIATE_PLUGIN with the requested args', () => {
     const { port, outgoing } = makePort();
     const proto = new WorkletProtocol(port);
-    void proto.loadPlugin({ instanceId: 'i_a', slot: 0, module, manifest });
+    void proto.loadPlugin({ instanceId: 'i_a', slot: 0, wasm, manifest });
 
     expect(outgoing).toHaveLength(1);
-    const msg = outgoing[0] as { type: string; instanceId: string; slot: number; module: unknown; manifest: PluginManifest };
+    const msg = outgoing[0] as { type: string; instanceId: string; slot: number; wasm: Uint8Array; manifest: PluginManifest };
     expect(msg.type).toBe('INSTANTIATE_PLUGIN');
     expect(msg.instanceId).toBe('i_a');
     expect(msg.slot).toBe(0);
-    expect(msg.module).toBe(module);
+    expect(msg.wasm).toBe(wasm);
     expect(msg.manifest.id).toBe('com.noa.test');
   });
 
   it('resolves on INSTANCE_READY with matching instanceId', async () => {
     const { port, fire } = makePort();
     const proto = new WorkletProtocol(port);
-    const promise = proto.loadPlugin({ instanceId: 'i_b', slot: 0, module, manifest });
+    const promise = proto.loadPlugin({ instanceId: 'i_b', slot: 0, wasm, manifest });
 
     const paramSab = new SharedArrayBuffer(64);
     const notifySab = new SharedArrayBuffer(32);
@@ -80,7 +79,7 @@ describe('WorkletProtocol.loadPlugin', () => {
   it('rejects on INSTANCE_ERROR with the error message', async () => {
     const { port, fire } = makePort();
     const proto = new WorkletProtocol(port);
-    const promise = proto.loadPlugin({ instanceId: 'i_c', slot: 0, module, manifest });
+    const promise = proto.loadPlugin({ instanceId: 'i_c', slot: 0, wasm, manifest });
 
     fire({ type: 'INSTANCE_ERROR', instanceId: 'i_c', error: 'WASM not happy' });
 
@@ -90,7 +89,7 @@ describe('WorkletProtocol.loadPlugin', () => {
   it('ignores messages whose instanceId does not match any pending request', async () => {
     const { port, fire } = makePort();
     const proto = new WorkletProtocol(port);
-    const promise = proto.loadPlugin({ instanceId: 'i_d', slot: 0, module, manifest });
+    const promise = proto.loadPlugin({ instanceId: 'i_d', slot: 0, wasm, manifest });
 
     fire({ type: 'INSTANCE_READY', instanceId: 'someone-else', slot: 9, paramRingSab: new SharedArrayBuffer(0), notifyRingSab: new SharedArrayBuffer(0) });
 
@@ -102,9 +101,9 @@ describe('WorkletProtocol.loadPlugin', () => {
   it('rejects when the same instanceId is loaded twice without first resolving', async () => {
     const { port } = makePort();
     const proto = new WorkletProtocol(port);
-    void proto.loadPlugin({ instanceId: 'i_dup', slot: 0, module, manifest });
+    void proto.loadPlugin({ instanceId: 'i_dup', slot: 0, wasm, manifest });
     await expect(
-      proto.loadPlugin({ instanceId: 'i_dup', slot: 1, module, manifest }),
+      proto.loadPlugin({ instanceId: 'i_dup', slot: 1, wasm, manifest }),
     ).rejects.toThrow(/already pending/);
   });
 
@@ -112,7 +111,7 @@ describe('WorkletProtocol.loadPlugin', () => {
     const { port, outgoing } = makePort();
     const proto = new WorkletProtocol(port);
     void proto.loadPlugin({
-      instanceId: 'i_p', slot: 0, module, manifest, initialParams: [0.5, 0.25],
+      instanceId: 'i_p', slot: 0, wasm, manifest, initialParams: [0.5, 0.25],
     });
     const msg = outgoing[0] as { initialParams?: number[] };
     expect(msg.initialParams).toEqual([0.5, 0.25]);
@@ -121,7 +120,7 @@ describe('WorkletProtocol.loadPlugin', () => {
   it('does not include an initialParams key when not provided', () => {
     const { port, outgoing } = makePort();
     const proto = new WorkletProtocol(port);
-    void proto.loadPlugin({ instanceId: 'i_np', slot: 0, module, manifest });
+    void proto.loadPlugin({ instanceId: 'i_np', slot: 0, wasm, manifest });
     expect(outgoing[0]).not.toHaveProperty('initialParams');
   });
 });
@@ -157,8 +156,8 @@ describe('WorkletProtocol.dispose', () => {
   it('rejects every pending load promise', async () => {
     const { port } = makePort();
     const proto = new WorkletProtocol(port);
-    const a = proto.loadPlugin({ instanceId: 'i_x', slot: 0, module, manifest });
-    const b = proto.loadPlugin({ instanceId: 'i_y', slot: 1, module, manifest });
+    const a = proto.loadPlugin({ instanceId: 'i_x', slot: 0, wasm, manifest });
+    const b = proto.loadPlugin({ instanceId: 'i_y', slot: 1, wasm, manifest });
 
     proto.dispose();
 
@@ -171,7 +170,7 @@ describe('WorkletProtocol.dispose', () => {
     const proto = new WorkletProtocol(port);
     proto.dispose();
     await expect(
-      proto.loadPlugin({ instanceId: 'i_z', slot: 0, module, manifest }),
+      proto.loadPlugin({ instanceId: 'i_z', slot: 0, wasm, manifest }),
     ).rejects.toThrow(/disposed/);
   });
 

@@ -18,10 +18,10 @@ import gainManifestJson from '../builtin-plugins/gain/plugin.json';
 import gainWasmUrl from '../builtin-plugins/gain/gain.wasm?url';
 import gainUiHtml from '../builtin-plugins/gain/ui/index.html?raw';
 
-async function compile(url) {
+async function fetchBytes(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`bootBuiltins: ${url} failed (${res.status})`);
-  return WebAssembly.compileStreaming(res);
+  return new Uint8Array(await res.arrayBuffer());
 }
 
 function uiAssetsFromHtml(entry, html) {
@@ -32,20 +32,20 @@ function uiAssetsFromHtml(entry, html) {
 
 export async function bootBuiltinRegistry() {
   const registry = new PluginRegistry();
-  const [sineModule, gainModule] = await Promise.all([
-    compile(sineWasmUrl),
-    compile(gainWasmUrl),
+  const [sineWasm, gainWasm] = await Promise.all([
+    fetchBytes(sineWasmUrl),
+    fetchBytes(gainWasmUrl),
   ]);
   const sineManifest = parseManifest(sineManifestJson);
   const gainManifest = parseManifest(gainManifestJson);
   registry.install({
     manifest: sineManifest,
-    module: sineModule,
+    wasm: sineWasm,
     uiAssets: sineManifest.ui ? uiAssetsFromHtml(sineManifest.ui.entry, sineUiHtml) : new Map(),
   });
   registry.install({
     manifest: gainManifest,
-    module: gainModule,
+    wasm: gainWasm,
     uiAssets: gainManifest.ui ? uiAssetsFromHtml(gainManifest.ui.entry, gainUiHtml) : new Map(),
   });
   return registry;

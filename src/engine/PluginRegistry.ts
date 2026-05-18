@@ -2,7 +2,14 @@ import { parseManifest, type PluginManifest } from './PluginManifest';
 
 export interface PluginRegistryEntry {
   manifest: PluginManifest;
-  module: WebAssembly.Module;
+  /**
+   * Raw WASM bytes. Stored as bytes rather than a compiled `WebAssembly.Module`
+   * because `WebAssembly.Module` instances are not structured-cloneable to
+   * AudioWorkletGlobalScope (crbug.com/1078182) — the engine has to send bytes
+   * to both the worklet and the per-instance worker, which compile their own
+   * Modules in their own contexts.
+   */
+  wasm: Uint8Array;
   /** Map of relative UI path → asset bytes. Empty if the plugin ships no UI. */
   uiAssets: Map<string, Uint8Array>;
 }
@@ -54,7 +61,7 @@ export class PluginRegistry {
     if (!wasmRes.ok) {
       throw new Error(`PluginRegistry.loadBuiltin: wasm fetch failed (${wasmRes.status}) for ${baseUrl}`);
     }
-    const module = await WebAssembly.compileStreaming(wasmRes);
+    const wasm = new Uint8Array(await wasmRes.arrayBuffer());
 
     const uiAssets = new Map<string, Uint8Array>();
     if (manifest.ui) {
@@ -65,6 +72,6 @@ export class PluginRegistry {
       uiAssets.set(manifest.ui.entry, new Uint8Array(await uiRes.arrayBuffer()));
     }
 
-    return { manifest, module, uiAssets };
+    return { manifest, wasm, uiAssets };
   }
 }

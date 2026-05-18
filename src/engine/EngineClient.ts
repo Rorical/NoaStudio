@@ -163,7 +163,7 @@ export class EngineClient {
       await Promise.race([
         pluginWorker.spawn({
           instanceId: args.instanceId,
-          module: args.module,
+          wasm: args.wasm,
           manifest: args.manifest,
           sampleRate: this.sampleRate,
           maxBlockSize: WORKER_MAX_BLOCK_SIZE,

@@ -3,7 +3,13 @@ import type { PluginManifest } from './PluginManifest';
 
 export interface PluginWorkerSpawnArgs {
   instanceId: string;
-  module: WebAssembly.Module;
+  /**
+   * Raw WASM bytes. Sent to the worker via postMessage; the worker compiles
+   * its own `WebAssembly.Module`. We could send a pre-compiled Module to the
+   * worker (it accepts the structured clone), but symmetric with the worklet
+   * path keeps the bookkeeping simpler.
+   */
+  wasm: Uint8Array;
   manifest: PluginManifest;
   sampleRate: number;
   maxBlockSize: number;
@@ -68,7 +74,7 @@ export class PluginWorker {
       this.port.postMessage({
         type: 'HELLO',
         instanceId: args.instanceId,
-        module: args.module,
+        wasm: args.wasm,
         manifest: args.manifest,
         sampleRate: args.sampleRate,
         maxBlockSize: args.maxBlockSize,

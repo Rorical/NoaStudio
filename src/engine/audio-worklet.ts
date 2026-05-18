@@ -26,7 +26,12 @@ interface InstantiateMessage {
   type: 'INSTANTIATE_PLUGIN';
   instanceId: string;
   slot: number;
-  module: WebAssembly.Module;
+  /**
+   * Raw WASM bytes. WebAssembly.Module instances are not structured-cloneable
+   * to AudioWorkletGlobalScope (crbug.com/1078182), so the main thread sends
+   * bytes and the worklet compiles synchronously via `new WebAssembly.Module`.
+   */
+  wasm: Uint8Array;
   manifest: PluginManifest;
   initialParams?: number[];
 }
@@ -84,7 +89,11 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
 
   private handleInstantiate(m: InstantiateMessage): void {
     try {
-      const inst = PluginInstance.fromModule(m.module, m.manifest, {
+      // Sync compile inside the worklet — allowed in worker-like contexts.
+      // Cast through `BufferSource` because TS 5.7's stricter typing narrows
+      // Uint8Array<ArrayBufferLike> away from the WebAssembly.Module sig.
+      const module = new WebAssembly.Module(m.wasm as unknown as BufferSource);
+      const inst = PluginInstance.fromModule(module, m.manifest, {
         sampleRate,
         maxBlockSize: MAX_WORKLET_BLOCK,
         allocateRings: true,
