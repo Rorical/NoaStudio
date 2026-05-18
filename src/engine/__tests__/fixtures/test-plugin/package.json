@@ -1,0 +1,6 @@
+{
+  "name": "noa-test-plugin",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Minimal Noa plugin used as a unit-test fixture. Not shipped."
+}

@@ -1,0 +1,10 @@
+{
+  "id": "com.noa.test",
+  "name": "Test Plugin",
+  "version": "0.0.1",
+  "abi_version": 1,
+  "kind": "fx",
+  "params": [
+    { "name": "Volume", "min": 0, "max": 2, "default": 1, "unit": "x", "display": "linear" }
+  ]
+}
