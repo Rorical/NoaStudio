@@ -4,8 +4,11 @@ import Icon from './Icon.jsx';
 export default function Mixer({
   channels, levels, selectedChannelId, onSelectChannel,
   onFader, onPan, onMute, onSolo, onAddEffect, onRemoveEffect, onBypassEffect,
-  trackColors, wide,
+  pluginCatalog, trackColors, wide,
 }) {
+  // pluginCatalog: Map<pluginId, { name: string, kind: 'gen' | 'fx', tag?: string }>
+  const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
+
   const onChannelDrop = (e, ch) => {
     e.preventDefault();
     const plugin = e.dataTransfer.getData('plugin');
@@ -69,8 +72,9 @@ export default function Mixer({
         <FxPanel
           channel={selectedChannel}
           color={selectedColor}
-          onRemoveEffect={(eid) => onRemoveEffect(selectedChannel.id, eid)}
-          onBypassEffect={(eid) => onBypassEffect(selectedChannel.id, eid)}
+          lookup={lookup}
+          onRemoveEffect={(iid) => onRemoveEffect(selectedChannel.id, iid)}
+          onBypassEffect={(iid, current) => onBypassEffect(selectedChannel.id, iid, current)}
           onDrop={(e) => onFxPanelDrop(e, selectedChannel)}
         />
       </div>
@@ -201,7 +205,7 @@ function ChannelStrip({ channel, color, level, level2, selected, isMaster, isBus
   );
 }
 
-function FxPanel({ channel, color, onRemoveEffect, onBypassEffect, onDrop }) {
+function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onDrop }) {
   const [over, setOver] = useState(false);
   if (!channel) return null;
   return (
@@ -232,7 +236,8 @@ function FxPanel({ channel, color, onRemoveEffect, onBypassEffect, onDrop }) {
             fx={fx}
             index={i}
             color={color}
-            onBypass={() => onBypassEffect(fx.id)}
+            info={lookup?.(fx.pluginId)}
+            onBypass={() => onBypassEffect(fx.id, fx.bypass)}
             onRemove={() => onRemoveEffect(fx.id)}
           />
         ))}
@@ -262,12 +267,12 @@ function FxPanel({ channel, color, onRemoveEffect, onBypassEffect, onDrop }) {
   );
 }
 
-const FX_ICON = {
-  eq: 'tune', comp: 'tune', limit: 'tune', fx: 'tune', enhance: 'bolt', master: 'tune',
-};
+const FX_ICON = { gen: 'synth', fx: 'tune' };
 
-function FxCard({ fx, onBypass, onRemove }) {
-  const wet = fx.kind === 'fx' ? 0.65 : 0.85;
+function FxCard({ fx, info, onBypass, onRemove }) {
+  const displayName = info?.name ?? fx.pluginId;
+  const kind = info?.kind ?? 'fx';
+  const wet = kind === 'fx' ? 0.65 : 0.85;
   return (
     <div className={`fx-card ${fx.bypass ? 'bypass' : ''}`}>
       <div className="fx-card-grip" title="Drag to reorder">
@@ -277,12 +282,12 @@ function FxCard({ fx, onBypass, onRemove }) {
         <span className="power-dot" />
       </button>
       <div className="fx-card-thumb">
-        <Icon name={FX_ICON[fx.kind] || 'tune'} size={18} />
+        <Icon name={FX_ICON[kind] || 'tune'} size={18} />
       </div>
       <div className="fx-card-body">
         <div className="fx-card-row">
-          <span className="fx-card-name">{fx.name}</span>
-          <span className="fx-card-tag mono">{fx.kind.toUpperCase()}</span>
+          <span className="fx-card-name">{displayName}</span>
+          <span className="fx-card-tag mono">{kind.toUpperCase()}</span>
         </div>
         <div className="fx-card-wet">
           <span className="wet-label mono">WET</span>

@@ -6,6 +6,10 @@ import PianoRoll from './components/PianoRoll.jsx';
 import Mixer from './components/Mixer.jsx';
 import TweaksPanel from './components/TweaksPanel.jsx';
 import { TRACK_COLORS, PLUGINS, FILES } from './data.js';
+
+const PLUGIN_CATALOG = new Map(
+  PLUGINS.filter((p) => p.pluginId).map((p) => [p.pluginId, p]),
+);
 import { useEngine } from './engine/useEngine.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
 
@@ -174,29 +178,34 @@ export default function App() {
     setView('tracks');
   }, []);
 
-  const assignGenerator = useCallback((trackId, name) => {
-    dispatch({ type: 'ASSIGN_GENERATOR', trackId, generator: name });
-  }, [dispatch]);
-
-  const addEffect = useCallback((channelId, plugin) => {
+  // Drops a Browser plugin onto a track's generator slot. `plugin.pluginId` must
+  // be a registered manifest id; entries without a pluginId are not droppable.
+  const assignGenerator = useCallback((trackId, plugin) => {
+    if (!plugin?.pluginId) return;
     dispatch({
-      type: 'ADD_EFFECT',
-      channelId,
-      effect: {
-        id: 'e' + Math.random().toString(36).slice(2, 6),
-        name: plugin.name,
-        kind: 'fx',
-        bypass: false,
-      },
+      type: 'LOAD_PLUGIN',
+      pluginId: plugin.pluginId,
+      target: { kind: 'track-generator', trackId },
+      defaults: [],
     });
   }, [dispatch]);
 
-  const removeEffect = useCallback((channelId, fxId) => {
-    dispatch({ type: 'REMOVE_EFFECT', channelId, effectId: fxId });
+  const addEffect = useCallback((channelId, plugin) => {
+    if (!plugin?.pluginId) return;
+    dispatch({
+      type: 'LOAD_PLUGIN',
+      pluginId: plugin.pluginId,
+      target: { kind: 'channel-fx', channelId },
+      defaults: [],
+    });
   }, [dispatch]);
 
-  const bypassEffect = useCallback((channelId, fxId) => {
-    dispatch({ type: 'BYPASS_EFFECT', channelId, effectId: fxId });
+  const removeEffect = useCallback((_channelId, instanceId) => {
+    dispatch({ type: 'UNLOAD_PLUGIN', instanceId });
+  }, [dispatch]);
+
+  const bypassEffect = useCallback((_channelId, instanceId, current) => {
+    dispatch({ type: 'SET_INSTANCE_BYPASS', instanceId, bypass: !current });
   }, [dispatch]);
 
   const setFader = useCallback((id, v) => {
@@ -282,6 +291,7 @@ export default function App() {
               playing={playing}
               onSetTime={setTime}
               onAssignGenerator={assignGenerator}
+              pluginCatalog={PLUGIN_CATALOG}
               trackColors={TRACK_COLORS}
               onMuteTrack={toggleTrackMute}
               onSoloTrack={toggleTrackSolo}
@@ -311,6 +321,7 @@ export default function App() {
             onAddEffect={addEffect}
             onRemoveEffect={removeEffect}
             onBypassEffect={bypassEffect}
+            pluginCatalog={PLUGIN_CATALOG}
             trackColors={TRACK_COLORS}
             wide
           />

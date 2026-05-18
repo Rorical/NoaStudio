@@ -9,8 +9,9 @@ const TRACK_H = 56;
 export default function Playlist({
   tracks, clips, selectedClipId, onSelectClip, onMoveClip, onOpenPianoRoll,
   time, playing, onSetTime, onAssignGenerator,
-  trackColors, onSoloTrack, onMuteTrack,
+  pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
 }) {
+  const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
   const scrollRef = useRef(null);
   const [drag, setDrag] = useState(null);
   const [hoverTrack, setHoverTrack] = useState(null);
@@ -61,7 +62,7 @@ export default function Playlist({
     const plugin = e.dataTransfer.getData('plugin');
     if (plugin) {
       const p = JSON.parse(plugin);
-      if (p.kind === 'gen') onAssignGenerator(track.id, p.name);
+      if (p.kind === 'gen') onAssignGenerator(track.id, p);
     }
     setHoverTrack(null);
   };
@@ -98,7 +99,9 @@ export default function Playlist({
                 <div className="track-gen">
                   <Icon name={t.type === 'midi' ? 'synth' : 'audio'} size={11} />
                   <span className="track-gen-name">
-                    {t.generator || (t.type === 'audio' ? 'Audio in' : 'No plugin')}
+                    {t.generator
+                      ? (lookup(t.generator.pluginId)?.name ?? t.generator.pluginId)
+                      : (t.type === 'audio' ? 'Audio in' : 'No plugin')}
                   </span>
                 </div>
               </div>

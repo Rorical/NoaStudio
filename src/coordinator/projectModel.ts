@@ -1,12 +1,25 @@
 // @ts-expect-error data.js is loose JS, this is the one place we type-launder it.
 import { DEMO_TRACKS, DEMO_CLIPS, DEMO_CHANNELS } from '../data.js';
 
+/**
+ * One plugin instance — a loaded WASM plugin on a channel's FX rack or a track's
+ * generator slot. The pluginId points into the engine's PluginRegistry.
+ */
+export interface PluginInstance {
+  id: string;
+  pluginId: string;
+  bypass: boolean;
+  /** Canonical parameter values, indexed per the plugin manifest's param order. */
+  params: number[];
+}
+
 export interface Track {
   id: string;
   name: string;
   type: 'midi' | 'audio';
   color: number;
-  generator: string | null;
+  /** The track's generator plugin instance. `null` when the track has no generator. */
+  generator: PluginInstance | null;
   channel: number;
   mute: boolean;
   solo: boolean;
@@ -27,15 +40,6 @@ export interface Clip {
   audio?: boolean;
 }
 
-export type EffectKind = 'eq' | 'comp' | 'limit' | 'fx' | 'enhance' | 'master';
-
-export interface Effect {
-  id: string;
-  name: string;
-  kind: EffectKind;
-  bypass: boolean;
-}
-
 export interface Channel {
   id: string;
   name: string;
@@ -45,7 +49,7 @@ export interface Channel {
   mute: boolean;
   solo: boolean;
   sends: string[];
-  effects: Effect[];
+  effects: PluginInstance[];
 }
 
 export interface Project {

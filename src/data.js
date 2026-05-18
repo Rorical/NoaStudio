@@ -1,14 +1,20 @@
 export const TRACK_COLORS = ['#ff6b9d', '#ffb84d', '#ffe45c', '#5ce2a0', '#5cc8ff', '#b8a4ff', '#ff8ad6', '#ff7a6e'];
 
+// Phase 3 demo: only entries referencing real loadable plugins survive.
+// `generator: null` everywhere except t1, which gets a com.noa.sine instance.
+// `params: []` is the "needs hydration" placeholder; the engine boot fills it
+// with the plugin manifest's defaults once registered.
 export const DEMO_TRACKS = [
-  { id: 't1', name: 'Kick',  type: 'midi',  color: 0, generator: 'Sytrus',    channel: 1, mute: false, solo: false, vol: 0.82 },
-  { id: 't2', name: 'Snare', type: 'midi',  color: 1, generator: 'FPC Drums', channel: 2, mute: false, solo: false, vol: 0.74 },
-  { id: 't3', name: 'Hats',  type: 'midi',  color: 2, generator: 'FPC Drums', channel: 3, mute: false, solo: false, vol: 0.62 },
-  { id: 't4', name: 'Bass',  type: 'midi',  color: 3, generator: 'Serum',     channel: 4, mute: false, solo: false, vol: 0.78 },
-  { id: 't5', name: 'Pad',   type: 'midi',  color: 4, generator: 'Massive X', channel: 5, mute: false, solo: false, vol: 0.55 },
-  { id: 't6', name: 'Lead',  type: 'midi',  color: 5, generator: 'Sylenth',   channel: 6, mute: false, solo: false, vol: 0.68 },
-  { id: 't7', name: 'Arp',   type: 'midi',  color: 6, generator: 'Pigments',  channel: 7, mute: false, solo: false, vol: 0.58 },
-  { id: 't8', name: 'Vox',   type: 'audio', color: 7, generator: null,        channel: 8, mute: false, solo: false, vol: 0.72 },
+  { id: 't1', name: 'Kick',  type: 'midi',  color: 0,
+    generator: { id: 'i_sine', pluginId: 'com.noa.sine', bypass: false, params: [] },
+    channel: 1, mute: false, solo: false, vol: 0.82 },
+  { id: 't2', name: 'Snare', type: 'midi',  color: 1, generator: null, channel: 2, mute: false, solo: false, vol: 0.74 },
+  { id: 't3', name: 'Hats',  type: 'midi',  color: 2, generator: null, channel: 3, mute: false, solo: false, vol: 0.62 },
+  { id: 't4', name: 'Bass',  type: 'midi',  color: 3, generator: null, channel: 4, mute: false, solo: false, vol: 0.78 },
+  { id: 't5', name: 'Pad',   type: 'midi',  color: 4, generator: null, channel: 5, mute: false, solo: false, vol: 0.55 },
+  { id: 't6', name: 'Lead',  type: 'midi',  color: 5, generator: null, channel: 6, mute: false, solo: false, vol: 0.68 },
+  { id: 't7', name: 'Arp',   type: 'midi',  color: 6, generator: null, channel: 7, mute: false, solo: false, vol: 0.58 },
+  { id: 't8', name: 'Vox',   type: 'audio', color: 7, generator: null, channel: 8, mute: false, solo: false, vol: 0.72 },
 ];
 
 const midiPattern = (notes) => ({ notes });
@@ -49,59 +55,30 @@ export const DEMO_CLIPS = [
   { id:'c25', trackId:'t8', start:20, length:4, audio: true, label:'Vox hook' },
 ];
 
+// Master gets the one real effect (com.noa.gain). Other channels start empty —
+// the Browser drag-drop or the LOAD_PLUGIN action populates them once more
+// plugins exist.
 export const DEMO_CHANNELS = [
   { id:'m0', name:'Master', color: null, vol: 0.85, pan: 0, mute:false, solo:false, sends:[], effects:[
-    { id:'e0', name:'Maximus', kind:'master', bypass:false }
+    { id:'i_gain', pluginId:'com.noa.gain', bypass:false, params:[] }
   ]},
-  { id:'m1', name:'Kick',    color: 0, vol: 0.82, pan: 0,    mute:false, solo:false, sends:['m0'], effects:[
-    { id:'e1', name:'EQ Two', kind:'eq', bypass:false },
-    { id:'e2', name:'Soundgoodizer', kind:'enhance', bypass:false }
-  ]},
-  { id:'m2', name:'Snare',   color: 1, vol: 0.74, pan: -0.05, mute:false, solo:false, sends:['m0','mB'], effects:[
-    { id:'e3', name:'Compressor', kind:'comp', bypass:false }
-  ]},
-  { id:'m3', name:'Hats',    color: 2, vol: 0.62, pan: 0.18,  mute:false, solo:false, sends:['m0','mB'], effects:[
-    { id:'e4', name:'EQ Two', kind:'eq', bypass:false }
-  ]},
-  { id:'m4', name:'Bass',    color: 3, vol: 0.78, pan: 0,    mute:false, solo:false, sends:['m0'], effects:[
-    { id:'e5', name:'Fruity Limiter', kind:'limit', bypass:false }
-  ]},
-  { id:'m5', name:'Pad',     color: 4, vol: 0.55, pan: -0.12, mute:false, solo:false, sends:['m0','mR'], effects:[
-    { id:'e6', name:'Reverb', kind:'fx', bypass:false }
-  ]},
-  { id:'m6', name:'Lead',    color: 5, vol: 0.68, pan: 0.10,  mute:false, solo:false, sends:['m0','mR'], effects:[
-    { id:'e7', name:'Chorus', kind:'fx', bypass:false },
-    { id:'e8', name:'Delay 3', kind:'fx', bypass:false }
-  ]},
+  { id:'m1', name:'Kick',    color: 0, vol: 0.82, pan: 0,    mute:false, solo:false, sends:['m0'], effects:[]},
+  { id:'m2', name:'Snare',   color: 1, vol: 0.74, pan: -0.05, mute:false, solo:false, sends:['m0','mB'], effects:[]},
+  { id:'m3', name:'Hats',    color: 2, vol: 0.62, pan: 0.18,  mute:false, solo:false, sends:['m0','mB'], effects:[]},
+  { id:'m4', name:'Bass',    color: 3, vol: 0.78, pan: 0,    mute:false, solo:false, sends:['m0'], effects:[]},
+  { id:'m5', name:'Pad',     color: 4, vol: 0.55, pan: -0.12, mute:false, solo:false, sends:['m0','mR'], effects:[]},
+  { id:'m6', name:'Lead',    color: 5, vol: 0.68, pan: 0.10,  mute:false, solo:false, sends:['m0','mR'], effects:[]},
   { id:'m7', name:'Arp',     color: 6, vol: 0.58, pan: 0.22,  mute:false, solo:false, sends:['m0','mR'], effects:[]},
-  { id:'m8', name:'Vox',     color: 7, vol: 0.72, pan: 0,    mute:false, solo:false, sends:['m0','mR'], effects:[
-    { id:'e9', name:'Vocodex', kind:'fx', bypass:false }
-  ]},
-  { id:'mB', name:'Drum Bus',color: null, vol: 0.80, pan: 0, mute:false, solo:false, sends:['m0'], effects:[
-    { id:'e10', name:'Glue Comp', kind:'comp', bypass:false }
-  ]},
-  { id:'mR', name:'Verb Bus',color: null, vol: 0.50, pan: 0, mute:false, solo:false, sends:['m0'], effects:[
-    { id:'e11', name:'Convolver', kind:'fx', bypass:false }
-  ]},
+  { id:'m8', name:'Vox',     color: 7, vol: 0.72, pan: 0,    mute:false, solo:false, sends:['m0','mR'], effects:[]},
+  { id:'mB', name:'Drum Bus',color: null, vol: 0.80, pan: 0, mute:false, solo:false, sends:['m0'], effects:[]},
+  { id:'mR', name:'Verb Bus',color: null, vol: 0.50, pan: 0, mute:false, solo:false, sends:['m0'], effects:[]},
 ];
 
+// Phase 3 ships two real plugins. The Browser shows what's loadable —
+// the broader plugin catalog returns when more are written.
 export const PLUGINS = [
-  { name:'Sytrus',     kind:'gen', tag:'FM synth' },
-  { name:'Serum',      kind:'gen', tag:'Wavetable' },
-  { name:'Massive X',  kind:'gen', tag:'Wavetable' },
-  { name:'Sylenth',    kind:'gen', tag:'Analog VA' },
-  { name:'Pigments',   kind:'gen', tag:'Hybrid' },
-  { name:'FPC Drums',  kind:'gen', tag:'Drum pads' },
-  { name:'Granulizer', kind:'gen', tag:'Granular' },
-  { name:'Kontakt 7',  kind:'gen', tag:'Sampler' },
-  { name:'EQ Two',     kind:'fx',  tag:'7-band EQ' },
-  { name:'Compressor', kind:'fx',  tag:'Dynamics' },
-  { name:'Reverb',     kind:'fx',  tag:'Algorithmic' },
-  { name:'Convolver',  kind:'fx',  tag:'Convolution' },
-  { name:'Delay 3',    kind:'fx',  tag:'Tape delay' },
-  { name:'Chorus',     kind:'fx',  tag:'Modulation' },
-  { name:'Maximus',    kind:'fx',  tag:'Multi-band' },
-  { name:'Vocodex',    kind:'fx',  tag:'Vocoder' },
+  { name:'Sine', kind:'gen', tag:'8-voice sine', pluginId:'com.noa.sine' },
+  { name:'Gain', kind:'fx',  tag:'Linear gain',  pluginId:'com.noa.gain' },
 ];
 
 export const FILES = [

@@ -56,14 +56,6 @@ describe('reducer — tracks (with channel cascade)', () => {
     expect(s1.tracks.find((t) => t.id === 't1')!.solo).toBe(!t1.solo);
     expect(s1.channels.find((c) => c.id === 'm' + t1.channel)!.solo).toBe(!t1.solo);
   });
-
-  it('ASSIGN_GENERATOR sets generator and forces type to midi', () => {
-    const s0 = seedProject();
-    const [s1] = run(s0, { type: 'ASSIGN_GENERATOR', trackId: 't8', generator: 'Pigments' });
-    const t8 = s1.tracks.find((t) => t.id === 't8')!;
-    expect(t8.generator).toBe('Pigments');
-    expect(t8.type).toBe('midi');
-  });
 });
 
 describe('reducer — channels', () => {
@@ -89,35 +81,147 @@ describe('reducer — channels', () => {
   });
 });
 
-describe('reducer — effects', () => {
-  it('ADD_EFFECT appends to channel.effects', () => {
+describe('reducer — plugin instances', () => {
+  it('LOAD_PLUGIN onto a channel FX rack appends an instance', () => {
     const s0 = seedProject();
     const before = s0.channels.find((c) => c.id === 'm1')!.effects.length;
     const [s1] = run(s0, {
-      type: 'ADD_EFFECT',
-      channelId: 'm1',
-      effect: { id: 'eX', name: 'Chorus', kind: 'fx', bypass: false },
+      type: 'LOAD_PLUGIN',
+      pluginId: 'com.noa.gain',
+      target: { kind: 'channel-fx', channelId: 'm1' },
+      defaults: [1.0],
     });
     const after = s1.channels.find((c) => c.id === 'm1')!.effects;
     expect(after.length).toBe(before + 1);
-    expect(after[after.length - 1]!.id).toBe('eX');
+    expect(after[after.length - 1]!.pluginId).toBe('com.noa.gain');
+    expect(after[after.length - 1]!.params).toEqual([1.0]);
+    expect(after[after.length - 1]!.bypass).toBe(false);
   });
 
-  it('REMOVE_EFFECT filters by id', () => {
+  it('LOAD_PLUGIN with insertAt inserts at the given position', () => {
     const s0 = seedProject();
-    const m1 = s0.channels.find((c) => c.id === 'm1')!;
-    const victimId = m1.effects[0]!.id;
-    const [s1] = run(s0, { type: 'REMOVE_EFFECT', channelId: 'm1', effectId: victimId });
-    expect(s1.channels.find((c) => c.id === 'm1')!.effects.find((e) => e.id === victimId)).toBeUndefined();
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN',
+      pluginId: 'com.noa.gain',
+      target: { kind: 'channel-fx', channelId: 'm0', insertAt: 0 },
+      defaults: [0.5],
+      instanceId: 'i_test',
+    });
+    const effects = s1.channels.find((c) => c.id === 'm0')!.effects;
+    expect(effects[0]!.id).toBe('i_test');
+    expect(effects[0]!.pluginId).toBe('com.noa.gain');
   });
 
-  it('BYPASS_EFFECT toggles bypass on the matching effect', () => {
+  it('LOAD_PLUGIN onto a track-generator slot replaces the previous generator', () => {
     const s0 = seedProject();
-    const m1 = s0.channels.find((c) => c.id === 'm1')!;
-    const target = m1.effects[0]!;
-    const [s1] = run(s0, { type: 'BYPASS_EFFECT', channelId: 'm1', effectId: target.id });
-    expect(s1.channels.find((c) => c.id === 'm1')!.effects.find((e) => e.id === target.id)!.bypass)
-      .toBe(!target.bypass);
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN',
+      pluginId: 'com.noa.sine',
+      target: { kind: 'track-generator', trackId: 't4' },
+      defaults: [0.5, 0],
+      instanceId: 'i_new',
+    });
+    const t4 = s1.tracks.find((t) => t.id === 't4')!;
+    expect(t4.generator?.id).toBe('i_new');
+    expect(t4.generator?.pluginId).toBe('com.noa.sine');
+    expect(t4.type).toBe('midi');
+  });
+
+  it('LOAD_PLUGIN onto unknown channel is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'LOAD_PLUGIN',
+      pluginId: 'com.noa.gain',
+      target: { kind: 'channel-fx', channelId: 'mZZ' },
+      defaults: [1],
+    });
+    expect(s1).toBe(s0);
+    expect(patches.length).toBe(0);
+  });
+
+  it('UNLOAD_PLUGIN removes a channel effect', () => {
+    const s0 = seedProject();
+    const target = s0.channels.find((c) => c.id === 'm0')!.effects[0]!;
+    const [s1] = run(s0, { type: 'UNLOAD_PLUGIN', instanceId: target.id });
+    expect(s1.channels.find((c) => c.id === 'm0')!.effects).toHaveLength(0);
+  });
+
+  it('UNLOAD_PLUGIN clears a track generator', () => {
+    const s0 = seedProject();
+    const inst = s0.tracks.find((t) => t.id === 't1')!.generator!;
+    const [s1] = run(s0, { type: 'UNLOAD_PLUGIN', instanceId: inst.id });
+    expect(s1.tracks.find((t) => t.id === 't1')!.generator).toBeNull();
+  });
+
+  it('UNLOAD_PLUGIN with unknown id is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'UNLOAD_PLUGIN', instanceId: 'i_nope' });
+    expect(s1).toBe(s0);
+    expect(patches.length).toBe(0);
+  });
+
+  it('SET_PARAM updates a param on a channel effect', () => {
+    const s0 = seedProject();
+    const inst = s0.channels.find((c) => c.id === 'm0')!.effects[0]!;
+    // Hydrate the params slot so SET_PARAM has somewhere to write.
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN',
+      pluginId: 'com.noa.gain',
+      target: { kind: 'channel-fx', channelId: 'm1' },
+      defaults: [1.0],
+      instanceId: 'i_p1',
+    });
+    const [s2] = run(s1, { type: 'SET_PARAM', instanceId: 'i_p1', paramIndex: 0, value: 0.25 });
+    const fx = s2.channels.find((c) => c.id === 'm1')!.effects.find((e) => e.id === 'i_p1')!;
+    expect(fx.params[0]).toBe(0.25);
+    // The original seed instance is untouched.
+    expect(s2.channels.find((c) => c.id === 'm0')!.effects[0]!.id).toBe(inst.id);
+  });
+
+  it('SET_PARAM updates a param on a track generator', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN',
+      pluginId: 'com.noa.sine',
+      target: { kind: 'track-generator', trackId: 't2' },
+      defaults: [0.5, 0],
+      instanceId: 'i_g2',
+    });
+    const [s2] = run(s1, { type: 'SET_PARAM', instanceId: 'i_g2', paramIndex: 1, value: 2 });
+    const t2 = s2.tracks.find((t) => t.id === 't2')!;
+    expect(t2.generator!.params).toEqual([0.5, 2]);
+  });
+
+  it('SET_PARAM with unknown instance is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'SET_PARAM', instanceId: 'i_nope', paramIndex: 0, value: 0,
+    });
+    expect(s1).toBe(s0);
+    expect(patches.length).toBe(0);
+  });
+
+  it('SET_PARAM with out-of-range paramIndex is a no-op', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN',
+      pluginId: 'com.noa.gain',
+      target: { kind: 'channel-fx', channelId: 'm2' },
+      defaults: [1.0],
+      instanceId: 'i_p3',
+    });
+    const [s2, patches] = run(s1, {
+      type: 'SET_PARAM', instanceId: 'i_p3', paramIndex: 99, value: 1,
+    });
+    expect(s2).toBe(s1);
+    expect(patches.length).toBe(0);
+  });
+
+  it('SET_INSTANCE_BYPASS toggles bypass on a channel effect', () => {
+    const s0 = seedProject();
+    const inst = s0.channels.find((c) => c.id === 'm0')!.effects[0]!;
+    const [s1] = run(s0, { type: 'SET_INSTANCE_BYPASS', instanceId: inst.id, bypass: true });
+    expect(s1.channels.find((c) => c.id === 'm0')!.effects[0]!.bypass).toBe(true);
   });
 });
 
