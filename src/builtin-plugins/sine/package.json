@@ -1,0 +1,6 @@
+{
+  "name": "noa-builtin-sine",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Noa built-in 8-voice polyphonic sine generator."
+}

@@ -47,7 +47,6 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
   private readonly eventFrame = new Uint8Array(EVENT_FRAME_SIZE);
   private readonly meterFrame = new Uint8Array(METER_FRAME_SIZE);
   private readonly meterView = new DataView(this.meterFrame.buffer);
-  private readonly pendingMessages: WorkletInbound[] = [];
   private sampleCounter = 0;
   private blockCounter = 0;
 
@@ -57,14 +56,12 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     this.eventRing = new RingBuffer(p.eventSab);
     this.meterRing = new RingBuffer(p.meterSab);
     this.telemetry = new Uint32Array(p.telemetrySab);
+    // Handle control messages immediately rather than queuing for process().
+    // The audio worklet's port delivers messages even when the AudioContext is
+    // suspended, so this lets the main thread complete `engine.loadPlugin()`
+    // before any user gesture has resumed the context.
     this.port.onmessage = (e: MessageEvent) => {
-      this.pendingMessages.push(e.data as WorkletInbound);
-    };
-  }
-
-  private applyPending(): void {
-    while (this.pendingMessages.length > 0) {
-      const m = this.pendingMessages.shift()!;
+      const m = e.data as WorkletInbound;
       switch (m.type) {
         case 'INSTANTIATE_PLUGIN':
           this.handleInstantiate(m);
@@ -73,7 +70,7 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
           this.chain.uninstall(m.slot);
           break;
       }
-    }
+    };
   }
 
   private handleInstantiate(m: InstantiateMessage): void {
@@ -113,8 +110,6 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
-    this.applyPending();
-
     const output = outputs[0];
     if (!output || !output[0]) return true;
     const left = output[0];

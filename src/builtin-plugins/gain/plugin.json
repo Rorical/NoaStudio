@@ -1,0 +1,10 @@
+{
+  "id": "com.noa.gain",
+  "name": "Gain",
+  "version": "1.0.0",
+  "abi_version": 1,
+  "kind": "fx",
+  "params": [
+    { "name": "Gain", "min": 0, "max": 4, "default": 1, "unit": "x", "display": "db" }
+  ]
+}

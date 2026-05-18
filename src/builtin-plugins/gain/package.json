@@ -1,0 +1,6 @@
+{
+  "name": "noa-builtin-gain",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Noa built-in linear gain insert."
+}

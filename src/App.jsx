@@ -11,6 +11,7 @@ const PLUGIN_CATALOG = new Map(
   PLUGINS.filter((p) => p.pluginId).map((p) => [p.pluginId, p]),
 );
 import { useEngine } from './engine/useEngine.js';
+import { bootBuiltinRegistry } from './engine/bootBuiltins.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
 
 const selectTracks = (p) => p.tracks;
@@ -42,8 +43,70 @@ export default function App() {
 
   const { engineRef, ready: engineReady, error: engineError } = useEngine();
 
+  // instanceId → slot in the worklet chain. Populated by the boot effect below.
+  const slotMapRef = useRef(new Map());
+
   useEffect(() => {
     if (engineReady) engineRef.current?.setTempo(bpm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engineReady]);
+
+  // Keep refs to the latest tracks/channels so the boot effect can walk them
+  // once at engine-ready without re-running on every coordinator dispatch.
+  const tracksRef = useRef(tracks);
+  const channelsRef = useRef(channels);
+  useEffect(() => { tracksRef.current = tracks; }, [tracks]);
+  useEffect(() => { channelsRef.current = channels; }, [channels]);
+
+  // Boot the plugin chain once the engine is ready: load each instance in the
+  // coordinator project state, in slot order (track generators first, then
+  // channel FX racks in channel order).
+  useEffect(() => {
+    if (!engineReady) return;
+    let cancelled = false;
+    (async () => {
+      const engine = engineRef.current;
+      if (!engine) return;
+      try {
+        const registry = await bootBuiltinRegistry();
+        if (cancelled) return;
+
+        const map = new Map();
+        let nextSlot = 0;
+
+        const loadOne = async (instance) => {
+          if (!registry.has(instance.pluginId)) return;
+          const entry = registry.get(instance.pluginId);
+          const initialParams = instance.params.length > 0
+            ? instance.params
+            : entry.manifest.params.map((p) => p.default);
+          const slot = nextSlot++;
+          await engine.loadPlugin({
+            instanceId: instance.id,
+            slot,
+            module: entry.module,
+            manifest: entry.manifest,
+            initialParams,
+          });
+          map.set(instance.id, slot);
+        };
+
+        for (const track of tracksRef.current) {
+          if (cancelled) return;
+          if (track.generator) await loadOne(track.generator);
+        }
+        for (const channel of channelsRef.current) {
+          for (const fx of channel.effects) {
+            if (cancelled) return;
+            await loadOne(fx);
+          }
+        }
+        slotMapRef.current = map;
+      } catch (err) {
+        console.error('Plugin boot failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineReady]);
 

@@ -1,0 +1,13 @@
+{
+  "targets": {
+    "release": {
+      "outFile": "plugin.wasm",
+      "optimizeLevel": 3,
+      "runtime": "stub"
+    }
+  },
+  "options": {
+    "exportRuntime": false,
+    "bindings": "raw"
+  }
+}

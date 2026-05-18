@@ -6,7 +6,8 @@ export const TRACK_COLORS = ['#ff6b9d', '#ffb84d', '#ffe45c', '#5ce2a0', '#5cc8f
 // with the plugin manifest's defaults once registered.
 export const DEMO_TRACKS = [
   { id: 't1', name: 'Kick',  type: 'midi',  color: 0,
-    generator: { id: 'i_sine', pluginId: 'com.noa.sine', bypass: false, params: [] },
+    // Params match com.noa.sine's manifest defaults: Volume=0.5, Octave=0.
+    generator: { id: 'i_sine', pluginId: 'com.noa.sine', bypass: false, params: [0.5, 0] },
     channel: 1, mute: false, solo: false, vol: 0.82 },
   { id: 't2', name: 'Snare', type: 'midi',  color: 1, generator: null, channel: 2, mute: false, solo: false, vol: 0.74 },
   { id: 't3', name: 'Hats',  type: 'midi',  color: 2, generator: null, channel: 3, mute: false, solo: false, vol: 0.62 },
@@ -60,7 +61,8 @@ export const DEMO_CLIPS = [
 // plugins exist.
 export const DEMO_CHANNELS = [
   { id:'m0', name:'Master', color: null, vol: 0.85, pan: 0, mute:false, solo:false, sends:[], effects:[
-    { id:'i_gain', pluginId:'com.noa.gain', bypass:false, params:[] }
+    // Params match com.noa.gain's manifest default: Gain=1.0 (unity).
+    { id:'i_gain', pluginId:'com.noa.gain', bypass:false, params:[1.0] }
   ]},
   { id:'m1', name:'Kick',    color: 0, vol: 0.82, pan: 0,    mute:false, solo:false, sends:['m0'], effects:[]},
   { id:'m2', name:'Snare',   color: 1, vol: 0.74, pan: -0.05, mute:false, solo:false, sends:['m0','mB'], effects:[]},
