@@ -21,10 +21,16 @@ export default function PluginWindow({
   zIndex,
   onFocus,
   onClose,
+  onPresetRequest,
 }) {
   const panelRef = useRef(null);
   const containerRef = useRef(null);
   const [pos, setPos] = useState(position ?? { x: 80, y: 120 });
+
+  // Stable ref to the preset callback so onPresetRequest prop changes
+  // don't tear down the iframe.
+  const presetCbRef = useRef(onPresetRequest);
+  useEffect(() => { presetCbRef.current = onPresetRequest; }, [onPresetRequest]);
 
   // Spawn the iframe once after mount; tear down on unmount or instance change.
   useEffect(() => {
@@ -34,6 +40,7 @@ export default function PluginWindow({
       instanceId, manifest, uiAssets, initialParams,
       paramRingSab, notifyRingSab,
       container,
+      onPresetRequest: (bytes) => presetCbRef.current?.(instanceId, bytes),
     });
     return () => opened.close();
   }, [instanceId, manifest, uiAssets, initialParams, paramRingSab, notifyRingSab]);

@@ -172,6 +172,21 @@ export default function App() {
     setOpenWindows((prev) => prev.map((w) => (w.instanceId === instanceId ? { ...w, z } : w)));
   }, []);
 
+  // ABI v1.1 preset flow: prep on the per-instance worker, activate on the
+  // worklet, then free the worker-side handle. The fast activate keeps audio
+  // glitch-free; the slow prep is absorbed by the worker.
+  const handlePresetRequest = useCallback(async (instanceId, bytes) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    try {
+      const prepared = await engine.preparePreset({ instanceId, bytes });
+      engine.activatePreset({ instanceId, preparedStateBytes: prepared.stateBytes });
+      engine.freePreset({ instanceId, handle: prepared.handle });
+    } catch (err) {
+      console.error(`Preset apply failed for ${instanceId}:`, err);
+    }
+  }, [engineRef]);
+
   const [view, setView] = useState('tracks');
   const [browserOpen, setBrowserOpen] = useState(true);
   const [pianoOpen, setPianoOpen] = useState(true);
@@ -487,6 +502,7 @@ export default function App() {
             zIndex={win.z}
             onFocus={() => focusPluginWindow(win.instanceId)}
             onClose={() => closePluginWindow(win.instanceId)}
+            onPresetRequest={handlePresetRequest}
           />
         );
       })}
