@@ -10,7 +10,7 @@ export interface PluginRegistryEntry {
 /**
  * Catalog of installed plugins, keyed by manifest id.
  * The registry is main-thread state; instantiation happens elsewhere
- * (PluginHost on the main thread, PluginInstance in the worklet).
+ * (PluginInstance on the main thread or in the worklet).
  */
 export class PluginRegistry {
   private readonly entries = new Map<string, PluginRegistryEntry>();

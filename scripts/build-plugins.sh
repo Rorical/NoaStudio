@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGINS=(
   "$ROOT/src/engine/__tests__/fixtures/test-plugin"
+  "$ROOT/src/engine/__tests__/fixtures/gen-test"
   "$ROOT/src/builtin-plugins/sine"
   "$ROOT/src/builtin-plugins/gain"
 )

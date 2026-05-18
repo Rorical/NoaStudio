@@ -1,0 +1,10 @@
+{
+  "id": "com.noa.gen-test",
+  "name": "Gen Test",
+  "version": "0.0.1",
+  "abi_version": 1,
+  "kind": "gen",
+  "params": [
+    { "name": "Value", "min": 0, "max": 1, "default": 0.5, "unit": "x", "display": "linear" }
+  ]
+}

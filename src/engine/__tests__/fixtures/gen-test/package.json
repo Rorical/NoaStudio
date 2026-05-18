@@ -1,0 +1,6 @@
+{
+  "name": "noa-gen-test-plugin",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Constant generator fixture for chain tests. Not shipped."
+}
