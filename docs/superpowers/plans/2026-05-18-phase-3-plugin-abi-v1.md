@@ -991,80 +991,87 @@ git commit -m "feat(engine): PluginRegistry — fetch + compile + catalog"
 - Modify: `src/coordinator/projectModel.ts`
 - Modify: `src/coordinator/actions.ts`
 - Modify: `src/coordinator/reducer.ts`
-- Modify: `src/coordinator/__tests__/reducer.test.ts` (extend)
-- Modify: `src/data.js` (re-seed demo to use plugin instances)
+- Modify: `src/coordinator/__tests__/reducer.test.ts` (rewrite the "effects" + "tracks" blocks)
+- Modify: `src/data.js` (reseed demo)
+- Modify: `src/App.jsx` (callbacks now mint instances by pluginId, not by old name/kind)
+- Modify: `src/components/Mixer.jsx`, `src/components/Playlist.jsx`, `src/components/Browser.jsx` (consume the new shape)
 
-**Design notes:** Existing shape is `Channel.effects: { id, name, kind, bypass }[]` and `Track.generator: string | null`. New shape per the design spec:
+**Design notes:** Clean break — no backward-compat shims. New shapes from the design spec:
 
 ```typescript
 interface PluginInstance {
   id: string;
-  pluginId: string;
+  pluginId: string;       // manifest id; required, every instance must reference a registered plugin
   bypass: boolean;
-  params: number[];
+  params: number[];       // canonical values, indexed per manifest param order
 }
 
 interface Channel { /* ...existing */ effects: PluginInstance[]; }
 interface Track   { /* ...existing */ generator: PluginInstance | null; }
 ```
 
-New actions: `load-plugin`, `unload-plugin`, `set-param`, `set-instance-bypass`.
+The legacy `Effect` type, `EffectKind` union, and `name`/`kind` display fields are **deleted**. UI display name and kind come from the plugin's manifest, looked up via `PluginRegistry.get(pluginId).manifest`. Components receive the registry as a prop.
 
-- [ ] **Step 1: Update `projectModel.ts`**
+Legacy actions deleted: `ADD_EFFECT`, `REMOVE_EFFECT`, `BYPASS_EFFECT`, `ASSIGN_GENERATOR`. They are superseded by the new plugin-aware ones.
 
-Add the `PluginInstance` interface; change `Channel.effects` from old shape to `PluginInstance[]`; change `Track.generator` from `string | null` to `PluginInstance | null`. Update `seedProject()` to convert the existing `DEMO_TRACKS` / `DEMO_CHANNELS` into the new shape:
-- For each Channel.effects entry of the old shape, assume `pluginId = 'com.noa.' + name.toLowerCase().replace(/[^a-z]/g, '')`. The seeder calls `seedInstance(pluginId, paramDefaults)` to mint a new instance. Until plugin manifests are known, params default to `[]` and are filled in lazily by the engine when the plugin loads.
-- For each Track.generator string, the same mapping applies.
+Demo project reseed: only entries referencing real loadable plugins survive.
+- `t1.generator` → `{ pluginId: 'com.noa.sine', params: <defaults> }`
+- `m0.effects` → `[{ pluginId: 'com.noa.gain', params: <defaults> }]`
+- Every other `track.generator` → `null`, every other `channel.effects` → `[]`.
 
-Actually — simpler approach: since most of the old demo references plugin names that don't exist yet (`Sytrus`, `Serum`, etc.), and we only have `sine` + `gain` in Phase 3, we **reduce the demo project to just what's loadable**:
-- Track `t1` (Kick) gets generator `com.noa.sine`.
-- Master channel `m0` gets one effect: `com.noa.gain`.
-- All other tracks/channels keep their visual existence but their `generator`/`effects` arrays become empty.
+`<defaults>` is filled in by the engine boot code (Task 8) once manifests are known; for now the seed uses `[]` and the reducer treats an empty `params` array as "needs hydration."
 
-This avoids dangling references and keeps the demo runnable. The "broader pretend ecosystem" returns when more plugins exist in later phases.
+- [ ] **Step 1: Replace `projectModel.ts`**
+
+Delete `Effect` and `EffectKind`. Add `PluginInstance` with the four fields above. Change `Channel.effects` to `PluginInstance[]`. Change `Track.generator` to `PluginInstance | null`. `seedProject()` calls a new local `seedDemo()` helper that builds the new shape from scratch rather than `structuredClone`ing `data.js` — `data.js` only seeds raw tracks/channels metadata; plugin instances are minted in the seeder.
 
 - [ ] **Step 2: Update `data.js`**
 
-Drop the `e0..e11` effect entries; replace with a single gain instance on Master. Drop all `generator: 'Sytrus' | ...` strings except for `t1` which becomes `'com.noa.sine'`.
+Reduce `DEMO_CHANNELS` to one effect on `m0`: `{ id: 'i0', pluginId: 'com.noa.gain', bypass: false, params: [] }`. All other channels have `effects: []`. Reduce `DEMO_TRACKS` so `t1.generator = { id: 'i1', pluginId: 'com.noa.sine', bypass: false, params: [] }` and all other tracks have `generator: null`. (Old display fields like `Sytrus`, `Serum` etc. are removed entirely.)
 
-- [ ] **Step 3: Update actions and reducer**
+- [ ] **Step 3: Replace actions**
 
-Add to `actions.ts`:
+`actions.ts` discriminants for plugin lifecycle:
 
 ```typescript
-| { type: 'load-plugin'; pluginId: string; target: { kind: 'channel-fx'; channelId: string; insertAt?: number } | { kind: 'track-generator'; trackId: string }; defaults: number[] }
-| { type: 'unload-plugin'; instanceId: string }
-| { type: 'set-param'; instanceId: string; paramIndex: number; value: number }
-| { type: 'set-instance-bypass'; instanceId: string; bypass: boolean }
+| { type: 'LOAD_PLUGIN'; pluginId: string; target: { kind: 'channel-fx'; channelId: string; insertAt?: number } | { kind: 'track-generator'; trackId: string }; defaults: number[] }
+| { type: 'UNLOAD_PLUGIN'; instanceId: string }
+| { type: 'SET_PARAM'; instanceId: string; paramIndex: number; value: number }
+| { type: 'SET_INSTANCE_BYPASS'; instanceId: string; bypass: boolean }
 ```
 
-Implement in `reducer.ts`. Lookup-by-instanceId requires scanning all tracks' generators + all channels' effects.
+`ADD_EFFECT`, `REMOVE_EFFECT`, `BYPASS_EFFECT`, `ASSIGN_GENERATOR` are deleted.
 
-- [ ] **Step 4: Extend reducer tests**
+- [ ] **Step 4: Replace reducer cases**
 
-For each new action, add reducer test cases covering: happy path, unknown-instance no-op, undo via patches.
+Drop the four legacy cases. Add the four new cases. `LOAD_PLUGIN` mints a fresh `id` (`'i' + base36 random`), sets `params` to a copy of `defaults`. `UNLOAD_PLUGIN` / `SET_PARAM` / `SET_INSTANCE_BYPASS` walk both `tracks.generator` and `channels.effects` to find the matching `instanceId`.
 
-- [ ] **Step 5: Run all tests**
+- [ ] **Step 5: Rewrite the reducer test cases**
+
+Delete the `reducer — effects` describe block and the `ASSIGN_GENERATOR` test. Replace with cases for the four new actions: happy path, unknown-instance no-op, patches.
+
+- [ ] **Step 6: Update JSX consumers (UI break is acceptable mid-refactor)**
+
+- `App.jsx`: replace `assignGenerator`, `addEffect`, `removeEffect`, `bypassEffect` callbacks with `loadPlugin(pluginId, target, defaults)`, `unloadPlugin(instanceId)`, `setParam(instanceId, idx, value)`, `setInstanceBypass(instanceId, bypass)`. The Browser drag-drop into a track or FX rack now needs to know a real `pluginId` — for Phase 3 it maps the drag-source plugin name to its registered id (the registry exposes `list()`).
+- `Mixer.jsx`: receives a new `registry` prop (`PluginRegistry`). Render each effect's display via `registry.get(fx.pluginId)?.manifest.name`. `FX_ICON[kind]` reads from the manifest's `kind`. Until the registry is populated, render a placeholder (`'…'`).
+- `Playlist.jsx`: `t.generator` is now an object. Render `t.generator ? registry.get(t.generator.pluginId)?.manifest.name : (t.type === 'audio' ? 'Audio in' : 'No plugin')`.
+- `Browser.jsx`: when dragging an existing demo plugin entry that doesn't have a registered pluginId, the drop is a no-op (UI accepts but coordinator rejects). Only `Sine` and `Gain` in the Browser have real pluginIds.
+
+- [ ] **Step 7: Run all tests + typecheck + smoke test**
 
 ```bash
 npm test
-```
-
-Expected: all existing 67 tests still pass, plus the new reducer cases.
-
-- [ ] **Step 6: Smoke-test the running app**
-
-```bash
+npm run typecheck
 npm run dev
 ```
 
-Open localhost. The UI should still render. The mixer's Master FX rack now shows one entry (`Gain`) and other channels show empty racks. Tracks `t2`..`t8` show empty generator. **Audio doesn't work yet** — that's Task 8.
+Expected: all coordinator unit tests pass with rewritten cases. Mixer renders one effect (`Gain`) on Master and no effects elsewhere. Track 1 displays `Sine` as its generator; other tracks show "No plugin." Audio still doesn't work yet — that's Task 8.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/coordinator/projectModel.ts src/coordinator/actions.ts src/coordinator/reducer.ts src/coordinator/__tests__/reducer.test.ts src/data.js
-git commit -m "feat(coordinator): PluginInstance model + load-plugin / set-param actions"
+git add -A
+git commit -m "feat(coordinator): PluginInstance model + LOAD_PLUGIN / SET_PARAM actions"
 ```
 
 ---
