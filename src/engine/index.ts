@@ -7,6 +7,8 @@ export {
   type RoutingConfig,
 } from './EngineClient';
 export { MixerRouter, type TrackRouting, type ChannelRouting, type ChannelMeter } from './MixerRouter';
+export { channelHash } from './channelHash';
+export { ClipScheduler } from './ClipScheduler';
 export {
   EVT_NOTE_ON, EVT_NOTE_OFF, EVT_PARAM_SET, EVT_TRANSPORT, EVT_TEMPO,
   TRANSPORT_STOP, TRANSPORT_PLAY, TRANSPORT_PAUSE,

@@ -147,7 +147,11 @@
 
 ---
 
-## Phase 6 — UI ↔ engine wiring
+## Phase 6a — Multi-track audio routing ✓ shipped 2026-05-18
+
+**Shipped:** Audio worklet now drives a `MixerRouter` over N chains (one per track-with-generator, one per channel-with-FX). Tracks output through their mixer channel's FX rack and onward through the bus graph (sends[0]) to master. A main-thread `ClipScheduler` look-aheads ~50 ms and pushes NoteOn/NoteOff events with absolute `sampleTime` onto the engine ring; the worklet dispatches them sample-accurately. Every channel publishes a real peak/RMS meter keyed by FNV-1a hash. App.jsx boots N chains, syncs routing on coordinator changes, and replaces the `sin()`/`Math.random()` meter sim with engine reads. 254 unit tests across 22 suites. Engine-driven transport, UI dispatches to coordinator, multi-destination sends, track-level FX inserts, and audio clip PCM playback all move to subsequent 6b/6c sub-phases.
+
+## Phase 6 (original outline) — UI ↔ engine wiring
 
 **Delivers:** The existing React UI is fully backed by engine + coordinator state. All `data.js` demo seeds, the simulated meter loop, and the simulated transport in `App.jsx` are removed.
 

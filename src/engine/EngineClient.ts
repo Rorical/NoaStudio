@@ -43,7 +43,9 @@ interface InstanceMeta {
 }
 
 export interface MeterReading {
-  channelId: number;
+  /** FNV-1a 32-bit hash of the channel id string. Use channelHash(id) on the
+   *  main thread to look up which channel this frame belongs to. */
+  channelHash: number;
   peak: number;
   rms: number;
   blockCounter: number;
@@ -102,6 +104,16 @@ export class EngineClient {
   get sampleRate(): number {
     if (!this.ctx) throw new Error('EngineClient not initialized');
     return this.ctx.sampleRate;
+  }
+
+  /**
+   * Push an already-encoded 32-byte EngineEvent frame onto the ring. Used by
+   * the ClipScheduler where the caller already has the bytes laid out.
+   * Returns false on ring overflow.
+   */
+  pushEventFrame(frame: Uint8Array): boolean {
+    if (!this.eventRing) throw new Error('EngineClient not initialized');
+    return this.eventRing.push(frame);
   }
 
   sendEvent(ev: EngineEvent): boolean {
@@ -277,7 +289,7 @@ export class EngineClient {
     out.length = 0;
     while (this.meterRing.pop(this.meterFrame)) {
       out.push({
-        channelId: this.meterView.getUint32(0, true),
+        channelHash: this.meterView.getUint32(0, true),
         peak: this.meterView.getFloat32(4, true),
         rms: this.meterView.getFloat32(8, true),
         blockCounter: this.meterView.getUint32(12, true),

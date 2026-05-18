@@ -10,8 +10,65 @@ import { TRACK_COLORS, FILES } from './data.js';
 import { useEngine } from './engine/useEngine.js';
 import { bootBuiltinRegistry } from './engine/bootBuiltins.js';
 import { PluginInstaller } from './engine/PluginInstaller.ts';
+import { ClipScheduler } from './engine/ClipScheduler.ts';
+import { channelHash } from './engine/channelHash.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
+
+/**
+ * Translate the coordinator's tracks/channels into a worklet RoutingConfig.
+ * v1 honours only sends[0]; multi-destination sends arrive in a later phase.
+ */
+function buildRoutingConfig(tracks, channels) {
+  return {
+    tracks: tracks
+      .filter((t) => t.generator)
+      .map((t) => ({
+        id: t.id,
+        chainId: t.id,
+        channelId: 'm' + t.channel,
+        mute: !!t.mute,
+        solo: !!t.solo,
+      })),
+    channels: channels.map((c) => ({
+      id: c.id,
+      fxChainId: c.id,
+      vol: c.vol ?? 1,
+      pan: c.pan ?? 0,
+      mute: !!c.mute,
+      solo: !!c.solo,
+      sendTo: (c.sends && c.sends[0]) || null,
+    })),
+    channelOrder: topoSortChannels(channels),
+  };
+}
+
+/**
+ * Topological order over the channel send graph. Sources first, sinks last —
+ * so master (no outgoing send) processes after every channel that feeds it.
+ */
+function topoSortChannels(channels) {
+  const ids = channels.map((c) => c.id);
+  const sendsTo = new Map(channels.map((c) => [c.id, (c.sends && c.sends[0]) || null]));
+  const inDeg = new Map(ids.map((id) => [id, 0]));
+  for (const c of channels) {
+    const dest = c.sends && c.sends[0];
+    if (dest && inDeg.has(dest)) inDeg.set(dest, inDeg.get(dest) + 1);
+  }
+  const order = [];
+  const queue = ids.filter((id) => inDeg.get(id) === 0);
+  while (queue.length > 0) {
+    const id = queue.shift();
+    order.push(id);
+    const dest = sendsTo.get(id);
+    if (dest && inDeg.has(dest)) {
+      inDeg.set(dest, inDeg.get(dest) - 1);
+      if (inDeg.get(dest) === 0) queue.push(dest);
+    }
+  }
+  for (const id of ids) if (!order.includes(id)) order.push(id);
+  return order;
+}
 
 const selectTracks = (p) => p.tracks;
 const selectClips = (p) => p.clips;
@@ -44,8 +101,6 @@ export default function App() {
 
   const { engineRef, ready: engineReady, error: engineError } = useEngine();
 
-  // instanceId → slot in the worklet chain. Populated by the boot effect below.
-  const slotMapRef = useRef(new Map());
   // instanceId → { paramRingSab, notifyRingSab } — needed to open plugin UIs.
   const instanceRingsRef = useRef(new Map());
   // Compiled plugin registry; ref-only because consumers read it imperatively
@@ -175,49 +230,52 @@ export default function App() {
         // Trigger the `pluginCatalog` memo to re-derive with hasUi populated.
         if (!cancelled) setRegistryVersion((v) => v + 1);
 
-        const map = new Map();
         const rings = new Map();
-        let nextSlot = 0;
 
-        const loadOne = async (instance) => {
+        const loadOne = async (instance, chainId, slot) => {
           if (!registry.has(instance.pluginId)) return;
           const entry = registry.get(instance.pluginId);
           const initialParams = instance.params.length > 0
             ? instance.params
             : entry.manifest.params.map((p) => p.default);
-          // Reserve a slot up-front so a failed load doesn't break later
-          // instances' slot indices.
-          const slot = nextSlot++;
           try {
             const result = await engine.loadPlugin({
               instanceId: instance.id,
-              slot,
+              chainId, slot,
               wasm: entry.wasm,
               manifest: entry.manifest,
               initialParams,
             });
-            map.set(instance.id, slot);
             rings.set(instance.id, {
               paramRingSab: result.paramRingSab,
               notifyRingSab: result.notifyRingSab,
             });
           } catch (err) {
-            console.error(`Plugin ${instance.pluginId} (${instance.id}) failed to load at slot ${slot}:`, err);
+            console.error(`Plugin ${instance.pluginId} (${instance.id}) failed:`, err);
           }
         };
 
+        // Track generators: one chain per track, slot 0.
         for (const track of tracksRef.current) {
           if (cancelled) return;
-          if (track.generator) await loadOne(track.generator);
+          if (track.generator) await loadOne(track.generator, track.id, 0);
         }
+        // Channel FX racks: one chain per channel, slot 0..N.
         for (const channel of channelsRef.current) {
-          for (const fx of channel.effects) {
+          for (let i = 0; i < channel.effects.length; i++) {
             if (cancelled) return;
-            await loadOne(fx);
+            await loadOne(channel.effects[i], channel.id, i);
           }
         }
-        slotMapRef.current = map;
+
         instanceRingsRef.current = rings;
+
+        // Push the initial routing config so audio flows.
+        engine.updateRouting(buildRoutingConfig(tracksRef.current, channelsRef.current));
+
+        // Second bump signals downstream effects (e.g. the ClipScheduler's
+        // setProject) that getNumericId now returns real values.
+        if (!cancelled) setRegistryVersion((v) => v + 1);
       } catch (err) {
         console.error('Plugin boot failed:', err);
       }
@@ -225,6 +283,53 @@ export default function App() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineReady]);
+
+  // Re-sync the worklet's routing topology whenever tracks/channels change.
+  // Fires after the boot effect because that's when the chains exist;
+  // subsequent runs just post UPDATE_ROUTING.
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.updateRouting(buildRoutingConfig(tracks, channels));
+  }, [engineReady, tracks, channels, engineRef]);
+
+  // ClipScheduler — instantiated once the engine is ready, started/stopped
+  // with the transport. Re-syncs its project copy on coordinator changes.
+  const [scheduler, setScheduler] = useState(null);
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const sched = new ClipScheduler({
+      sampleRate: engine.sampleRate,
+      lookaheadSamples: Math.round(engine.sampleRate * 0.05), // 50 ms
+      readCurrentSample: () => engine.currentSamplePosition(),
+      pushEvent: (frame) => { engine.pushEventFrame(frame); },
+    });
+    setScheduler(sched);
+  }, [engineReady, engineRef]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!scheduler || !engine) return;
+    scheduler.setProject({
+      bpm,
+      tracks: tracks.map((t) => ({
+        id: t.id,
+        mute: !!t.mute,
+        solo: !!t.solo,
+        generatorNumericId: t.generator ? engine.getNumericId(t.generator.id) : undefined,
+      })),
+      clips: clips.map((c) => ({
+        trackId: c.trackId,
+        start: c.start,
+        length: c.length,
+        pattern: c.pattern,
+      })),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduler, tracks, clips, bpm, registryVersion, engineRef]);
 
   // Find a PluginInstance by id across tracks + channels. Used by the open
   // plugin windows to pull the current params for HELLO.
@@ -294,6 +399,9 @@ export default function App() {
     if (!engine) return;
     samplesAtPlayStartRef.current = engine.currentSamplePosition();
     timeAtPlayStartRef.current = time;
+
+    if (scheduler) scheduler.start({ startSample: samplesAtPlayStartRef.current, startBeat: time });
+
     let raf;
     const tick = () => {
       const samples = engine.currentSamplePosition();
@@ -304,57 +412,66 @@ export default function App() {
         next = next % 32;
         samplesAtPlayStartRef.current = samples;
         timeAtPlayStartRef.current = next;
+        if (scheduler) scheduler.reset({ startSample: samples, startBeat: next });
       }
       if (next > 128) next = 0;
       setTime(next);
+      if (scheduler) scheduler.tick();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (scheduler) scheduler.stop();
+    };
     // bpm/loop changes are intentionally re-captured by the new closure.
-  }, [playing, bpm, loop, engineRef]);
+  }, [playing, bpm, loop, engineRef, scheduler]);
+
+  // Map from FNV-1a hash → channel id. Built once per channel-list change so
+  // the meter RAF can route incoming frames back to ids without serialising
+  // strings through the meter ring.
+  const hashToChannelId = useMemo(() => {
+    const m = new Map();
+    for (const c of channels) m.set(channelHash(c.id), c.id);
+    return m;
+  }, [channels]);
 
   const meterScratchRef = useRef([]);
   useEffect(() => {
     let raf;
     const tick = () => {
-      const t = performance.now() / 1000;
-      const beat = time;
-      const newLevels = {};
-      if (playing) {
-        channels.forEach((ch) => {
-          if (ch.mute) { newLevels[ch.id] = 0; return; }
-          const phase = (beat + (ch.id.charCodeAt(1) || 0) * 0.13) * Math.PI;
-          let base = 0.35 + Math.abs(Math.sin(phase * 2)) * 0.5 * ch.vol;
-          if (ch.name === 'Kick')  base = 0.4 + Math.pow(Math.abs(Math.sin(beat * Math.PI)), 6) * 0.6 * ch.vol;
-          if (ch.name === 'Snare') base = 0.2 + (beat % 2 < 0.2 ? 0.7 : 0) * ch.vol;
-          if (ch.name === 'Hats')  base = 0.15 + Math.abs(Math.sin(beat * 8 + Math.random() * 0.5)) * 0.4 * ch.vol;
-          if (ch.name === 'Master') base = 0;
-          newLevels[ch.id] = Math.max(0, Math.min(1, base));
-          newLevels[ch.id + '_r'] = Math.max(0, Math.min(1, base * (0.85 + Math.sin(t * 4 + ch.vol) * 0.1)));
-        });
-      } else {
-        channels.forEach((ch) => { newLevels[ch.id] = 0; newLevels[ch.id + '_r'] = 0; });
-      }
-
-      // Master comes from the real engine.
       const engine = engineRef.current;
-      if (engine) {
-        engine.readMeters(meterScratchRef.current);
-        let peak = 0;
-        for (const r of meterScratchRef.current) {
-          if (r.channelId === 0 && r.peak > peak) peak = r.peak;
-        }
-        newLevels['m0'] = peak;
-        newLevels['m0_r'] = peak;
+      if (!engine) {
+        raf = requestAnimationFrame(tick);
+        return;
       }
-
-      setLevels(newLevels);
+      engine.readMeters(meterScratchRef.current);
+      // Fold peaks per channel — multiple frames per RAF for fast playback.
+      const peakById = new Map();
+      for (const f of meterScratchRef.current) {
+        const id = hashToChannelId.get(f.channelHash);
+        if (!id) continue;
+        const prev = peakById.get(id) ?? 0;
+        if (f.peak > prev) peakById.set(id, f.peak);
+      }
+      // Decay any channel we didn't hear from this tick.
+      setLevels((prev) => {
+        const next = {};
+        for (const c of channels) {
+          const fresh = peakById.get(c.id);
+          const prior = prev[c.id] ?? 0;
+          // Snap up on peak, decay 15% per RAF on silence.
+          const v = fresh !== undefined ? Math.max(prior * 0.85, fresh) : prior * 0.85;
+          next[c.id] = v;
+          next[c.id + '_r'] = v;
+        }
+        return next;
+      });
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, time, channels, engineRef]);
+  }, [channels, hashToChannelId, engineRef]);
 
   const masterLevels = [levels['m0'] || 0, levels['m0_r'] || 0];
 
@@ -364,13 +481,8 @@ export default function App() {
     setPlaying((prev) => {
       const next = !prev;
       if (engine) {
-        if (next) {
-          engine.play(time);
-          engine.noteOn(60, 100);
-          setTimeout(() => engine.noteOff(60), 800);
-        } else {
-          engine.stop();
-        }
+        if (next) engine.play(time);
+        else engine.stop();
       }
       return next;
     });

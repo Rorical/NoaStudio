@@ -7,6 +7,7 @@ import {
 import { PluginInstance } from './PluginInstance';
 import { PluginChain } from './PluginChain';
 import { MixerRouter, type RoutingConfig } from './MixerRouter';
+import { channelHash } from './channelHash';
 import type { PluginManifest } from './PluginManifest';
 
 const METER_FRAME_SIZE = 16;
@@ -257,7 +258,7 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     // frame layout stays a flat 16 bytes.
     for (let i = 0; i < meters.length; i++) {
       const m = meters[i]!;
-      this.meterView.setUint32(0, fnv1a(m.channelId), true);
+      this.meterView.setUint32(0, channelHash(m.channelId), true);
       this.meterView.setFloat32(4, m.peak, true);
       this.meterView.setFloat32(8, m.rms, true);
       this.meterView.setUint32(12, this.blockCounter, true);
@@ -269,19 +270,6 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     this.blockCounter++;
     return true;
   }
-}
-
-/**
- * FNV-1a 32-bit hash. Mirrors the main-thread helper in EngineClient so the
- * two sides resolve channel ids consistently.
- */
-function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
 }
 
 registerProcessor('noa-engine', NoaEngineProcessor);
