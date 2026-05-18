@@ -1,0 +1,11 @@
+{
+  "id": "com.noa.preset-test",
+  "name": "Preset Test",
+  "version": "0.0.1",
+  "abi_version": 1,
+  "kind": "fx",
+  "params": [
+    { "name": "A", "min": 0, "max": 1, "default": 0 },
+    { "name": "B", "min": 0, "max": 1, "default": 0 }
+  ]
+}

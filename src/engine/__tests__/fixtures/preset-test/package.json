@@ -1,0 +1,6 @@
+{
+  "name": "noa-preset-test-plugin",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Test fixture for ABI v1.1 preset hot-swap support. Not shipped."
+}
