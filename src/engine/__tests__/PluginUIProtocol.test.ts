@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   PROTOCOL_VERSION,
-  isReady, isStateSnapshotRequest, isStateSnapshotResponse,
+  isReady, isStateSnapshotRequest, isStateSnapshotResponse, isPresetRequest,
   type HostToIframe, type IframeToHost,
 } from '../PluginUIProtocol';
 import { ABI_VERSION } from '../PluginAbi';
@@ -69,5 +69,16 @@ describe('PluginUIProtocol', () => {
     expect(isStateSnapshotResponse({
       type: 'STATE_SNAPSHOT_RESPONSE', requestId: 'r1',
     })).toBe(false);
+  });
+
+  it('PRESET_REQUEST validator (Phase 4 v1.1)', () => {
+    const msg: IframeToHost = {
+      type: 'PRESET_REQUEST',
+      bytes: new Uint8Array([0x4E, 0x53, 0x50, 0x31, 0, 0, 0, 0, 0, 0, 0, 0]),
+    };
+    expect(isPresetRequest(msg)).toBe(true);
+    expect(isPresetRequest({ type: 'PRESET_REQUEST' })).toBe(false);
+    expect(isPresetRequest({ type: 'PRESET_REQUEST', bytes: [1, 2, 3] })).toBe(false);
+    expect(isPresetRequest(null)).toBe(false);
   });
 });

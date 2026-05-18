@@ -55,10 +55,21 @@ export interface StateSnapshotResponseMessage {
   bytes: Uint8Array;
 }
 
+/**
+ * iframe → host: the UI wants to apply a preset's compressed bytes.
+ * The host runs the preset through the per-instance worker (preparePreset),
+ * then activates the result on the worklet. Phase 4 wires this end-to-end.
+ */
+export interface PresetRequestMessage {
+  type: 'PRESET_REQUEST';
+  bytes: Uint8Array;
+}
+
 export type IframeToHost =
   | ReadyMessage
   | StateSnapshotRequestMessage
-  | StateSnapshotResponseMessage;
+  | StateSnapshotResponseMessage
+  | PresetRequestMessage;
 
 export function isReady(msg: unknown): msg is ReadyMessage {
   return !!msg && typeof msg === 'object' && (msg as { type?: unknown }).type === 'READY';
@@ -76,4 +87,10 @@ export function isStateSnapshotResponse(msg: unknown): msg is StateSnapshotRespo
   return m.type === 'STATE_SNAPSHOT_RESPONSE'
     && typeof m.requestId === 'string'
     && m.bytes instanceof Uint8Array;
+}
+
+export function isPresetRequest(msg: unknown): msg is PresetRequestMessage {
+  if (!msg || typeof msg !== 'object') return false;
+  const m = msg as { type?: unknown; bytes?: unknown };
+  return m.type === 'PRESET_REQUEST' && m.bytes instanceof Uint8Array;
 }

@@ -8,5 +8,5 @@
     { "name": "Volume", "min": 0, "max": 1, "default": 0.5, "unit": "x", "display": "linear" },
     { "name": "Octave", "min": -2, "max": 2, "default": 0, "step": 1, "unit": "oct", "display": "linear" }
   ],
-  "ui": { "entry": "index.html", "width": 280, "height": 200 }
+  "ui": { "entry": "index.html", "width": 280, "height": 260 }
 }

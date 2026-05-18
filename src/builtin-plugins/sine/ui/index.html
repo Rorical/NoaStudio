@@ -36,6 +36,24 @@
   .knob .tick { stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
   .label { font-weight: 600; }
   .value { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .preset-row {
+    display: flex; gap: 6px; padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .preset-row .preset-label {
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); align-self: center; padding-right: 4px;
+  }
+  .preset-row button {
+    flex: 1; appearance: none; cursor: pointer;
+    background: rgba(255, 107, 157, 0.12);
+    color: var(--fg); border: 1px solid rgba(255, 107, 157, 0.3);
+    border-radius: 5px; padding: 4px 6px;
+    font: inherit; font-size: 10px; font-weight: 600;
+  }
+  .preset-row button:hover { background: rgba(255, 107, 157, 0.22); }
+  .preset-row button:active { background: rgba(255, 107, 157, 0.35); }
+  .preset-row button:disabled { opacity: 0.4; cursor: wait; }
 </style>
 </head>
 <body>
@@ -63,6 +81,12 @@
     <div class="label">Octave</div>
     <div class="value" id="value1">—</div>
   </div>
+</div>
+<div class="preset-row">
+  <span class="preset-label">Preset</span>
+  <button id="preset-bright">Bright</button>
+  <button id="preset-mellow">Mellow</button>
+  <button id="preset-default">Default</button>
 </div>
 <script>
   window.__noa.onReady(function () {
@@ -164,6 +188,32 @@
       requestAnimationFrame(pollLoop);
     }
     requestAnimationFrame(pollLoop);
+
+    // Preset bank. 'NSP1' magic + Volume f32 + Octave f32 = 12 bytes.
+    function buildPreset(volume, octave) {
+      var bytes = new Uint8Array(12);
+      bytes[0] = 0x4E; bytes[1] = 0x53; bytes[2] = 0x50; bytes[3] = 0x31;
+      var dv = new DataView(bytes.buffer);
+      dv.setFloat32(4, volume, true);
+      dv.setFloat32(8, octave, true);
+      return bytes;
+    }
+    function wirePreset(id, volume, octave) {
+      var btn = document.getElementById(id);
+      btn.addEventListener('click', function () {
+        // Visual feedback while the worker is busy. Host responds via the
+        // notify ring with ParamChanged frames once the worklet applies it.
+        btn.disabled = true;
+        var ok = window.__noa.applyPreset(buildPreset(volume, octave));
+        // Re-enable shortly — the swap completes in <100ms even with the
+        // synthetic delay; UI doesn't need to wait for a confirmation.
+        setTimeout(function () { btn.disabled = false; }, 150);
+        if (!ok) console.error('[noa.sine] applyPreset rejected');
+      });
+    }
+    wirePreset('preset-bright',  1.0,  1);
+    wirePreset('preset-mellow',  0.3, -1);
+    wirePreset('preset-default', 0.5,  0);
   });
 </script>
 </body>

@@ -2,7 +2,7 @@ import { ABI_VERSION } from './PluginAbi';
 import type { PluginManifest } from './PluginManifest';
 import {
   PROTOCOL_VERSION,
-  isReady,
+  isReady, isPresetRequest,
   type HelloMessage,
   type IframeToHost,
 } from './PluginUIProtocol';
@@ -17,6 +17,12 @@ export interface OpenWindowArgs {
   notifyRingSab: SharedArrayBuffer;
   /** DOM element the iframe is appended into; sized by the parent. */
   container: HTMLElement;
+  /**
+   * Called when the iframe posts a PRESET_REQUEST. Receives the raw
+   * preset bytes; the host routes them through engine.preparePreset +
+   * activatePreset to swap the plugin's state without glitching audio.
+   */
+  onPresetRequest?: (bytes: Uint8Array) => void;
 }
 
 export interface OpenedWindow {
@@ -82,6 +88,11 @@ export class PluginUIHost {
           notifyRingSab: args.notifyRingSab,
         };
         iframe.contentWindow!.postMessage(hello, '*');
+        return;
+      }
+      if (isPresetRequest(msg)) {
+        args.onPresetRequest?.(msg.bytes);
+        return;
       }
       // STATE_SNAPSHOT_* are part of the protocol but ignored in Phase 3 —
       // built-in plugin state lives entirely in the WASM instance.
@@ -173,6 +184,24 @@ const BOOTSTRAP = `<script>
     pollNotify: function () {
       if (!noa.notifyRingSab) return null;
       return popNotify(noa.notifyRingSab);
+    },
+    /**
+     * Send a preset payload (plugin-defined bytes) to the host. The host
+     * routes the request to the per-instance worker for noa_preset_prepare,
+     * then applies the result on the worklet. Phase 4 v1.1.
+     */
+    applyPreset: function (bytes) {
+      if (!(bytes instanceof Uint8Array)) {
+        console.error('[noa] applyPreset: bytes must be a Uint8Array');
+        return false;
+      }
+      try {
+        window.parent.postMessage({ type: 'PRESET_REQUEST', bytes: bytes }, '*');
+        return true;
+      } catch (err) {
+        console.error('[noa] applyPreset failed', err);
+        return false;
+      }
     },
   };
   window.__noa = noa;
