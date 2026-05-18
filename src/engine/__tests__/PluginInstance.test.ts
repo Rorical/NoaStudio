@@ -160,6 +160,111 @@ describe('PluginInstance lifecycle', () => {
   });
 });
 
+describe('PluginInstance preset hot-swap (ABI v1.1)', () => {
+  const PRESET_DIR = path.resolve('src/engine/__tests__/fixtures/preset-test');
+  let presetBytes: ArrayBuffer;
+  const presetManifest: PluginManifest = parseManifest({
+    id: 'com.noa.preset-test',
+    name: 'Preset Test', version: '0.0.1', abi_version: 1, kind: 'fx',
+    params: [
+      { name: 'A', min: 0, max: 1, default: 0 },
+      { name: 'B', min: 0, max: 1, default: 0 },
+    ],
+  });
+
+  beforeAll(async () => {
+    const buf = await readFile(path.join(PRESET_DIR, 'plugin.wasm'));
+    const ab = new ArrayBuffer(buf.byteLength);
+    new Uint8Array(ab).set(buf);
+    presetBytes = ab;
+  });
+
+  function makePresetPayload(a: number, b: number): Uint8Array {
+    const out = new Uint8Array(12);
+    out[0] = 0x4E; out[1] = 0x54; out[2] = 0x50; out[3] = 0x31; // 'NTP1'
+    const dv = new DataView(out.buffer);
+    dv.setFloat32(4, a, true);
+    dv.setFloat32(8, b, true);
+    return out;
+  }
+
+  it('hasPresetSupport returns true when all four v1.1 exports are present', async () => {
+    const inst = await PluginInstance.fromBytes(presetBytes, presetManifest, { sampleRate: 48000, maxBlockSize: 128 });
+    expect(inst.hasPresetSupport()).toBe(true);
+    inst.destroy();
+  });
+
+  it('hasPresetSupport returns false for a v1.0 plugin', async () => {
+    const inst = await PluginInstance.fromBytes(bytes, manifest, { sampleRate: 48000, maxBlockSize: 128 });
+    expect(inst.hasPresetSupport()).toBe(false);
+    inst.destroy();
+  });
+
+  it('preparePreset returns a non-zero handle for a valid payload', async () => {
+    const inst = await PluginInstance.fromBytes(presetBytes, presetManifest, { sampleRate: 48000, maxBlockSize: 128 });
+    const handle = inst.preparePreset(makePresetPayload(0.4, 0.6));
+    expect(handle).toBeGreaterThan(0);
+    inst.destroy();
+  });
+
+  it('preparePreset throws on an invalid payload', async () => {
+    const inst = await PluginInstance.fromBytes(presetBytes, presetManifest, { sampleRate: 48000, maxBlockSize: 128 });
+    expect(() => inst.preparePreset(new Uint8Array([1, 2, 3]))).toThrow(/preset/i);
+    inst.destroy();
+  });
+
+  it('serializePreset writes bytes matching the prepared values', async () => {
+    const inst = await PluginInstance.fromBytes(presetBytes, presetManifest, { sampleRate: 48000, maxBlockSize: 128 });
+    const handle = inst.preparePreset(makePresetPayload(0.25, 0.75));
+    const stateBytes = inst.serializePreset(handle);
+    expect(stateBytes.byteLength).toBe(8);
+    const view = new DataView(stateBytes.buffer, stateBytes.byteOffset, stateBytes.byteLength);
+    expect(view.getFloat32(0, true)).toBeCloseTo(0.25, 5);
+    expect(view.getFloat32(4, true)).toBeCloseTo(0.75, 5);
+    inst.destroy();
+  });
+
+  it('round-trips: prepare on instance A → serialize → setState on instance B', async () => {
+    const a = await PluginInstance.fromBytes(presetBytes, presetManifest, { sampleRate: 48000, maxBlockSize: 128 });
+    const handle = a.preparePreset(makePresetPayload(0.31, 0.42));
+    const stateBytes = a.serializePreset(handle);
+
+    const b = await PluginInstance.fromBytes(presetBytes, presetManifest, { sampleRate: 48000, maxBlockSize: 128 });
+    expect(b.setState(stateBytes)).toBe(true);
+    expect(b.readParam(0)).toBeCloseTo(0.31, 5);
+    expect(b.readParam(1)).toBeCloseTo(0.42, 5);
+
+    a.destroy();
+    b.destroy();
+  });
+
+  it('freePreset releases the slot so further prepares succeed', async () => {
+    const inst = await PluginInstance.fromBytes(presetBytes, presetManifest, { sampleRate: 48000, maxBlockSize: 128 });
+    // The fixture has 4 slots. Fill them.
+    const handles = [
+      inst.preparePreset(makePresetPayload(0.1, 0.1)),
+      inst.preparePreset(makePresetPayload(0.2, 0.2)),
+      inst.preparePreset(makePresetPayload(0.3, 0.3)),
+      inst.preparePreset(makePresetPayload(0.4, 0.4)),
+    ];
+    // 5th prepare should fail.
+    expect(() => inst.preparePreset(makePresetPayload(0.5, 0.5))).toThrow();
+    // Free one and try again.
+    inst.freePreset(handles[0]!);
+    const freshHandle = inst.preparePreset(makePresetPayload(0.6, 0.6));
+    expect(freshHandle).toBeGreaterThan(0);
+    inst.destroy();
+  });
+
+  it('preparePreset / serializePreset throw on a v1.0 plugin (no support)', async () => {
+    const inst = await PluginInstance.fromBytes(bytes, manifest, { sampleRate: 48000, maxBlockSize: 128 });
+    expect(() => inst.preparePreset(new Uint8Array(12))).toThrow(/preset support/i);
+    expect(() => inst.serializePreset(1)).toThrow(/preset support/i);
+    expect(() => inst.freePreset(1)).toThrow(/preset support/i);
+    inst.destroy();
+  });
+});
+
 describe('PluginInstance per-instance rings', () => {
   it('exposes paramRingSab and notifyRingSab when allocateRings is true', async () => {
     const h = await PluginInstance.fromBytes(bytes, manifest, {

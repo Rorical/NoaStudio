@@ -1,4 +1,4 @@
-import { ABI_VERSION, EXPORTS, MEMORY_EXPORT } from './PluginAbi';
+import { ABI_VERSION, EXPORTS, MEMORY_EXPORT, PRESET_EXPORTS } from './PluginAbi';
 import type { PluginManifest } from './PluginManifest';
 import { allocRingBuffer, RingBuffer } from './RingBuffer';
 import {
@@ -53,8 +53,13 @@ interface PluginExports {
   [EXPORTS.get_state]:          (outPtr: number) => number;
   [EXPORTS.set_state]:          (inPtr: number, nBytes: number) => number;
   [EXPORTS.destroy]:            () => void;
+  // ABI v1.1 — optional. Either all four are present or none.
+  [EXPORTS.preset_prepare]?:        (inPtr: number, inLen: number) => number;
+  [EXPORTS.preset_get_state_size]?: (handle: number) => number;
+  [EXPORTS.preset_serialize]?:      (handle: number, outPtr: number) => number;
+  [EXPORTS.preset_free]?:           (handle: number) => void;
   [MEMORY_EXPORT]:              WebAssembly.Memory;
-  [k: string]: WasmFn | WebAssembly.Memory;
+  [k: string]: WasmFn | WebAssembly.Memory | undefined;
 }
 
 function buildImports(manifestId: string, hostImports: Partial<HostImports> | undefined): WebAssembly.Imports {
@@ -298,6 +303,60 @@ export class PluginInstance {
     const dst = new Uint8Array(this.memory.buffer, this.stateScratchPtr, bytes.length);
     dst.set(bytes);
     return this.exports[EXPORTS.set_state](this.stateScratchPtr, bytes.length) === 1;
+  }
+
+  /**
+   * Returns true when the plugin exports all four ABI v1.1 preset symbols
+   * (`noa_preset_prepare`, `noa_preset_get_state_size`,
+   * `noa_preset_serialize`, `noa_preset_free`).
+   */
+  hasPresetSupport(): boolean {
+    return PRESET_EXPORTS.every((k) => typeof this.exports[EXPORTS[k]] === 'function');
+  }
+
+  private assertPresetSupport(method: string): void {
+    if (!this.hasPresetSupport()) {
+      throw new Error(`PluginInstance.${method}: plugin has no preset support (missing ABI v1.1 exports)`);
+    }
+  }
+
+  /**
+   * Worker-side call: parse `bytes` into a prepared "hot" preset. Slow path —
+   * may take arbitrarily long depending on the plugin. Returns a non-zero
+   * handle on success. Throws if the plugin doesn't ship v1.1 or rejects
+   * the payload.
+   */
+  preparePreset(bytes: Uint8Array): number {
+    this.assertPresetSupport('preparePreset');
+    if (bytes.length > this.eventBufCapacity * 32) {
+      throw new Error(`PluginInstance.preparePreset: preset bytes ${bytes.length} exceed scratch capacity`);
+    }
+    // Reuse the event buffer as scratch for preset bytes — it's idle outside
+    // of process() and the plugin's preset_prepare reads from the pointer.
+    const dst = new Uint8Array(this.memory.buffer, this.eventBufPtr, bytes.length);
+    dst.set(bytes);
+    const handle = this.exports[EXPORTS.preset_prepare]!(this.eventBufPtr, bytes.length);
+    if (handle === 0) throw new Error('PluginInstance.preparePreset: noa_preset_prepare returned 0');
+    return handle;
+  }
+
+  /**
+   * Worker-side call: serialize a prepared preset's bytes into the format
+   * `setState` accepts. Returns a fresh `Uint8Array` (copied out of plugin
+   * memory).
+   */
+  serializePreset(handle: number): Uint8Array {
+    this.assertPresetSupport('serializePreset');
+    const size = this.exports[EXPORTS.preset_get_state_size]!(handle);
+    if (size === 0) return new Uint8Array(0);
+    const written = this.exports[EXPORTS.preset_serialize]!(handle, this.stateScratchPtr);
+    return new Uint8Array(new Uint8Array(this.memory.buffer, this.stateScratchPtr, written));
+  }
+
+  /** Release a prepared preset. Safe to call with an invalid handle. */
+  freePreset(handle: number): void {
+    this.assertPresetSupport('freePreset');
+    this.exports[EXPORTS.preset_free]!(handle);
   }
 
   destroy(): void {
