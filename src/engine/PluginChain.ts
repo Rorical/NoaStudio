@@ -95,20 +95,29 @@ export class PluginChain {
    * Process one audio block. Walks all occupied slots in order:
    *   - drains each instance's per-instance param ring (UI knob updates);
    *   - copies any queued global-ring events into the plugin's event buffer;
-   *   - writes upstream output as input for FX slots; skips input for generators;
+   *   - for FX slots, writes upstream output (or `inBus` for the first slot)
+   *     into the plugin's input;
    *   - calls noa_process;
    *   - reads output back into the bus.
    *
    * Writes the chain's final output (interleaved stereo) into `outBus`.
    * `outBus.length` must equal `blockSize * 2`. When the chain has no occupied
    * slots, `outBus` is zeroed.
+   *
+   * `inBus` (optional) is the upstream stereo signal feeding the chain. Only
+   * consulted when the first occupied slot holds an FX-kind plugin (i.e. the
+   * chain is an FX rack with no internal generator). For generator chains
+   * `inBus` is ignored.
    */
-  processBlock(blockSize: number, outBus: Float32Array): void {
+  processBlock(blockSize: number, outBus: Float32Array, inBus?: Float32Array): void {
     if (blockSize > this.maxBlockSize) {
       throw new Error(`PluginChain.processBlock: blockSize ${blockSize} > maxBlockSize ${this.maxBlockSize}`);
     }
     if (outBus.length !== blockSize * 2) {
       throw new Error(`PluginChain.processBlock: outBus must be ${blockSize * 2} samples (got ${outBus.length})`);
+    }
+    if (inBus && inBus.length !== blockSize * 2) {
+      throw new Error(`PluginChain.processBlock: inBus must be ${blockSize * 2} samples (got ${inBus.length})`);
     }
 
     // Reset bus to silence; subsequent slots overwrite it.
@@ -131,9 +140,15 @@ export class PluginChain {
         entry.count = 0;
       }
 
-      // FX slots take upstream output as input; generators ignore input.
-      if (!firstSlot && inst.manifest.kind === 'fx') {
-        inst.writeInput(this.bus.subarray(0, blockSize * 2));
+      // FX slots take their input from the upstream slot's output. For the
+      // first slot in an FX-only chain, that upstream is the external `inBus`.
+      // Generators ignore input.
+      if (inst.manifest.kind === 'fx') {
+        if (firstSlot && inBus) {
+          inst.writeInput(inBus.subarray(0, blockSize * 2));
+        } else if (!firstSlot) {
+          inst.writeInput(this.bus.subarray(0, blockSize * 2));
+        }
       }
 
       inst.process(blockSize, nEvents);
@@ -143,6 +158,9 @@ export class PluginChain {
 
     if (hadAnySlot) {
       outBus.set(this.bus.subarray(0, blockSize * 2));
+    } else if (inBus) {
+      // No plugins installed but caller supplied input — pass it through.
+      outBus.set(inBus.subarray(0, blockSize * 2));
     } else {
       outBus.fill(0, 0, blockSize * 2);
     }
