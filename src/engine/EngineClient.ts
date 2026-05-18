@@ -94,13 +94,13 @@ export class EngineClient {
   /** Route a NoteOn to the instance occupying the given slot (default slot 0 = generator). */
   noteOn(note: number, velocity = 100, slot = 0): void {
     this.sendEvent({
-      type: EVT_NOTE_ON, frameOffset: 0, targetId: slot, note, velocity, channel: 0,
+      type: EVT_NOTE_ON, sampleTime: 0, targetId: slot, note, velocity, channel: 0,
     });
   }
 
   noteOff(note: number, slot = 0): void {
     this.sendEvent({
-      type: EVT_NOTE_OFF, frameOffset: 0, targetId: slot, note, channel: 0,
+      type: EVT_NOTE_OFF, sampleTime: 0, targetId: slot, note, channel: 0,
     });
   }
 
@@ -111,24 +111,24 @@ export class EngineClient {
    */
   setParam(slot: number, paramIndex: number, value: number): void {
     this.sendEvent({
-      type: EVT_PARAM_SET, frameOffset: 0, targetId: slot, paramIndex, value,
+      type: EVT_PARAM_SET, sampleTime: 0, targetId: slot, paramIndex, value,
     });
   }
 
   play(positionBeats = 0): void {
     this.sendEvent({
-      type: EVT_TRANSPORT, frameOffset: 0, command: TRANSPORT_PLAY, positionBeats,
+      type: EVT_TRANSPORT, sampleTime: 0, command: TRANSPORT_PLAY, positionBeats,
     });
   }
 
   stop(): void {
     this.sendEvent({
-      type: EVT_TRANSPORT, frameOffset: 0, command: TRANSPORT_STOP, positionBeats: 0,
+      type: EVT_TRANSPORT, sampleTime: 0, command: TRANSPORT_STOP, positionBeats: 0,
     });
   }
 
   setTempo(bpm: number): void {
-    this.sendEvent({ type: EVT_TEMPO, frameOffset: 0, bpm });
+    this.sendEvent({ type: EVT_TEMPO, sampleTime: 0, bpm });
   }
 
   /**

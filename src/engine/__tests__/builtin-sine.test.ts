@@ -34,10 +34,14 @@ function rms(buf: Float32Array): number {
   return Math.sqrt(s / buf.length);
 }
 
+// These helpers push directly into the plugin's per-block event buffer,
+// bypassing the worklet's sampleTime→frameOffset translation. The bytes at
+// offset 4 are what the AS plugin reads as frameOffset within the block,
+// so the EngineEvent.sampleTime field here is effectively the frameOffset.
 function pushNoteOn(inst: PluginInstance, note: number, velocity: number, frameOffset = 0): void {
   const frame = new Uint8Array(EVENT_FRAME_SIZE);
   encodeEvent({
-    type: EVT_NOTE_ON, frameOffset, targetId: 0, note, velocity, channel: 0,
+    type: EVT_NOTE_ON, sampleTime: frameOffset, targetId: 0, note, velocity, channel: 0,
   }, frame);
   inst.pushEvents(frame, 1);
 }
@@ -45,7 +49,7 @@ function pushNoteOn(inst: PluginInstance, note: number, velocity: number, frameO
 function pushNoteOff(inst: PluginInstance, note: number, frameOffset = 0): void {
   const frame = new Uint8Array(EVENT_FRAME_SIZE);
   encodeEvent({
-    type: EVT_NOTE_OFF, frameOffset, targetId: 0, note, channel: 0,
+    type: EVT_NOTE_OFF, sampleTime: frameOffset, targetId: 0, note, channel: 0,
   }, frame);
   inst.pushEvents(frame, 1);
 }

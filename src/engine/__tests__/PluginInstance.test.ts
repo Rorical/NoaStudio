@@ -282,7 +282,7 @@ describe('PluginInstance per-instance rings', () => {
     const sender = new RingBuffer(h.paramRingSab!);
     const frame = new Uint8Array(EVENT_FRAME_SIZE);
     encodeEvent({
-      type: EVT_PARAM_SET, frameOffset: 0, targetId: 0, paramIndex: 0, value: 0.7,
+      type: EVT_PARAM_SET, sampleTime: 0, targetId: 0, paramIndex: 0, value: 0.7,
     }, frame);
     expect(sender.push(frame)).toBe(true);
 
@@ -298,7 +298,7 @@ describe('PluginInstance per-instance rings', () => {
     const sender = new RingBuffer(h.paramRingSab!);
     const frame = new Uint8Array(EVENT_FRAME_SIZE);
     encodeEvent({
-      type: EVT_PARAM_SET, frameOffset: 0, targetId: 0, paramIndex: 99, value: 9.9,
+      type: EVT_PARAM_SET, sampleTime: 0, targetId: 0, paramIndex: 99, value: 9.9,
     }, frame);
     sender.push(frame);
 
