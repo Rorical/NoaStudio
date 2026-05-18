@@ -23,6 +23,16 @@ export type Action =
   | { type: 'TOGGLE_CHANNEL_SOLO'; channelId: string }
   | { type: 'SET_BPM'; bpm: number }
   | { type: 'TOGGLE_LOOP' }
-  | { type: 'TOGGLE_METRONOME' };
+  | { type: 'TOGGLE_METRONOME' }
+  | {
+      type: 'INSTALL_PLUGIN';
+      entry: {
+        pluginId: string;
+        version: string;
+        name: string;
+        kind: 'gen' | 'fx';
+      };
+    }
+  | { type: 'UNINSTALL_PLUGIN'; pluginId: string };
 
 export type ActionType = Action['type'];

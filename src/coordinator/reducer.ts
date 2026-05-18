@@ -144,6 +144,21 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         draft.metronome = !draft.metronome;
         return;
       }
+      case 'INSTALL_PLUGIN': {
+        const entry = action.entry;
+        const idx = draft.installedPlugins.findIndex((p) => p.pluginId === entry.pluginId);
+        if (idx >= 0) {
+          draft.installedPlugins[idx] = { ...entry };
+        } else {
+          draft.installedPlugins.push({ ...entry });
+        }
+        return;
+      }
+      case 'UNINSTALL_PLUGIN': {
+        const idx = draft.installedPlugins.findIndex((p) => p.pluginId === action.pluginId);
+        if (idx >= 0) draft.installedPlugins.splice(idx, 1);
+        return;
+      }
       default: {
         const _exhaustive: never = action;
         void _exhaustive;

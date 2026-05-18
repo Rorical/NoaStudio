@@ -52,6 +52,18 @@ export interface Channel {
   effects: PluginInstance[];
 }
 
+/**
+ * A plugin available to the user — already unpacked into OPFS at
+ * /plugins/<pluginId>/<version>/. The runtime resolves these to wasm bytes
+ * via the Service Worker or, in the fallback path, by reading OPFS directly.
+ */
+export interface InstalledPlugin {
+  pluginId: string;
+  version: string;
+  name: string;
+  kind: 'gen' | 'fx';
+}
+
 export interface Project {
   tracks: Track[];
   clips: Clip[];
@@ -59,7 +71,13 @@ export interface Project {
   bpm: number;
   loop: boolean;
   metronome: boolean;
+  installedPlugins: InstalledPlugin[];
 }
+
+const SEED_INSTALLED_PLUGINS: InstalledPlugin[] = [
+  { pluginId: 'com.noa.sine', version: '1.0.0', name: 'Sine', kind: 'gen' },
+  { pluginId: 'com.noa.gain', version: '1.0.0', name: 'Gain', kind: 'fx' },
+];
 
 export function seedProject(): Project {
   return {
@@ -69,5 +87,6 @@ export function seedProject(): Project {
     bpm: 124,
     loop: true,
     metronome: false,
+    installedPlugins: structuredClone(SEED_INSTALLED_PLUGINS),
   };
 }

@@ -245,6 +245,53 @@ describe('reducer — project settings', () => {
   });
 });
 
+describe('reducer — installed plugins', () => {
+  it('seedProject ships the two built-ins as installedPlugins', () => {
+    const s0 = seedProject();
+    const ids = s0.installedPlugins.map((p) => p.pluginId).sort();
+    expect(ids).toEqual(['com.noa.gain', 'com.noa.sine']);
+  });
+
+  it('INSTALL_PLUGIN appends a new entry', () => {
+    const s0 = seedProject();
+    const before = s0.installedPlugins.length;
+    const [s1] = run(s0, {
+      type: 'INSTALL_PLUGIN',
+      entry: { pluginId: 'com.example.fuzz', version: '0.1.0', name: 'Fuzz', kind: 'fx' },
+    });
+    expect(s1.installedPlugins).toHaveLength(before + 1);
+    expect(s1.installedPlugins.at(-1)).toEqual({
+      pluginId: 'com.example.fuzz', version: '0.1.0', name: 'Fuzz', kind: 'fx',
+    });
+  });
+
+  it('INSTALL_PLUGIN replaces an existing entry with the same pluginId', () => {
+    const s0 = seedProject();
+    const before = s0.installedPlugins.length;
+    const [s1] = run(s0, {
+      type: 'INSTALL_PLUGIN',
+      entry: { pluginId: 'com.noa.sine', version: '2.0.0', name: 'Sine 2', kind: 'gen' },
+    });
+    expect(s1.installedPlugins).toHaveLength(before);
+    const sine = s1.installedPlugins.find((p) => p.pluginId === 'com.noa.sine')!;
+    expect(sine.version).toBe('2.0.0');
+    expect(sine.name).toBe('Sine 2');
+  });
+
+  it('UNINSTALL_PLUGIN removes an entry', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'UNINSTALL_PLUGIN', pluginId: 'com.noa.gain' });
+    expect(s1.installedPlugins.find((p) => p.pluginId === 'com.noa.gain')).toBeUndefined();
+  });
+
+  it('UNINSTALL_PLUGIN with an unknown id is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'UNINSTALL_PLUGIN', pluginId: 'com.example.nope' });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+});
+
 describe('reducer — patches', () => {
   it('returns Immer-shaped patches and inverse patches', () => {
     const s0 = seedProject();
