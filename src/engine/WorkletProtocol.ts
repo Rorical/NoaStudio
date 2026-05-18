@@ -87,6 +87,16 @@ export class WorkletProtocol {
     this.port.postMessage({ type: 'DESTROY_INSTANCE', slot });
   }
 
+  /**
+   * Apply a prepared preset's state bytes to the instance at `slot`. The
+   * worklet calls `noa_set_state` between blocks — fast per the ABI v1.1
+   * contract that set_state is O(memcpy + atomic indices).
+   */
+  applyPresetState(slot: number, stateBytes: Uint8Array): void {
+    if (this.disposed) return;
+    this.port.postMessage({ type: 'APPLY_PRESET_STATE', slot, stateBytes });
+  }
+
   /** Reject every outstanding loadPlugin promise (used on EngineClient.dispose). */
   dispose(reason: Error = new Error('WorkletProtocol: disposed')): void {
     this.disposed = true;

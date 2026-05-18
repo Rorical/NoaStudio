@@ -135,6 +135,24 @@ describe('WorkletProtocol.unloadInstance', () => {
   });
 });
 
+describe('WorkletProtocol.applyPresetState', () => {
+  it('posts APPLY_PRESET_STATE with the slot and state bytes', () => {
+    const { port, outgoing } = makePort();
+    const proto = new WorkletProtocol(port);
+    const bytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    proto.applyPresetState(2, bytes);
+    expect(outgoing).toEqual([{ type: 'APPLY_PRESET_STATE', slot: 2, stateBytes: bytes }]);
+  });
+
+  it('is a no-op after dispose', () => {
+    const { port, outgoing } = makePort();
+    const proto = new WorkletProtocol(port);
+    proto.dispose();
+    proto.applyPresetState(0, new Uint8Array());
+    expect(outgoing).toEqual([]);
+  });
+});
+
 describe('WorkletProtocol.dispose', () => {
   it('rejects every pending load promise', async () => {
     const { port } = makePort();

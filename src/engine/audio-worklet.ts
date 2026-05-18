@@ -36,7 +36,13 @@ interface DestroyMessage {
   slot: number;
 }
 
-type WorkletInbound = InstantiateMessage | DestroyMessage;
+interface ApplyPresetStateMessage {
+  type: 'APPLY_PRESET_STATE';
+  slot: number;
+  stateBytes: Uint8Array;
+}
+
+type WorkletInbound = InstantiateMessage | DestroyMessage | ApplyPresetStateMessage;
 
 class NoaEngineProcessor extends AudioWorkletProcessor {
   private readonly eventRing: RingBuffer;
@@ -69,6 +75,9 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
         case 'DESTROY_INSTANCE':
           this.chain.uninstall(m.slot);
           break;
+        case 'APPLY_PRESET_STATE':
+          this.handleApplyPresetState(m);
+          break;
       }
     };
   }
@@ -96,6 +105,15 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
         error: String((err as Error)?.message ?? err),
       });
     }
+  }
+
+  private handleApplyPresetState(m: ApplyPresetStateMessage): void {
+    const inst = this.chain.get(m.slot);
+    if (!inst) return;
+    // setState is expected to be O(memcpy) per the ABI v1.1 contract.
+    // Calling it inside onmessage is safe — the worklet thread is
+    // single-threaded so process() can't run concurrently.
+    inst.setState(m.stateBytes);
   }
 
   private drainEventsIntoChain(): void {
