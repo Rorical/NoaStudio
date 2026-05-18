@@ -6,23 +6,25 @@ import {
   type HelloMessage,
   type IframeToHost,
 } from './PluginUIProtocol';
+import { injectBootstrap } from './pluginUiBootstrap';
 
 export interface OpenWindowArgs {
   instanceId: string;
   manifest: PluginManifest;
-  /** Map of relative UI path → bytes. Must contain `manifest.ui.entry`. */
+  /** Map of relative UI path → bytes. Must contain `manifest.ui.entry`. Only
+   *  consulted on the Blob URL fallback path; the SW path streams from OPFS. */
   uiAssets: Map<string, Uint8Array>;
   initialParams: number[];
   paramRingSab: SharedArrayBuffer;
   notifyRingSab: SharedArrayBuffer;
-  /** DOM element the iframe is appended into; sized by the parent. */
   container: HTMLElement;
-  /**
-   * Called when the iframe posts a PRESET_REQUEST. Receives the raw
-   * preset bytes; the host routes them through engine.preparePreset +
-   * activatePreset to swap the plugin's state without glitching audio.
-   */
   onPresetRequest?: (bytes: Uint8Array) => void;
+  /**
+   * When provided, the iframe loads from `/_noa/plugin-ui/<instanceId>/<entry>`
+   * and the host posts `BIND_INSTANCE` to the worker on open and
+   * `UNBIND_INSTANCE` on close. Falls back to the Blob URL path when omitted.
+   */
+  serviceWorker?: ServiceWorker | null;
 }
 
 export interface OpenedWindow {
@@ -31,48 +33,102 @@ export interface OpenedWindow {
 }
 
 /**
- * Per-instance iframe lifecycle for plugin UIs.
+ * Per-instance iframe lifecycle for plugin UIs. Two paths:
  *
- * The iframe runs the plugin's HTML inside a Blob URL with
- * `sandbox="allow-scripts allow-same-origin"`. `allow-same-origin` is required
+ *  - **Service Worker path** (preferred when `args.serviceWorker` is set): the
+ *    iframe `src` points at `/_noa/plugin-ui/<instanceId>/<entry>`, which the
+ *    SW resolves against OPFS. Sub-resources (CSS, fonts, scripts) referenced
+ *    from the HTML work because they resolve relative to the same SW namespace.
+ *    The SW injects the bootstrap when serving HTML so plugin authors don't
+ *    need to embed it themselves.
+ *
+ *  - **Blob URL fallback**: the host inlines the bootstrap into the HTML and
+ *    points the iframe at a Blob URL. Sub-resources only work if the plugin
+ *    inlines them, which is why the SW path is preferred.
+ *
+ * Sandbox: `allow-scripts allow-same-origin`. `allow-same-origin` is required
  * because SharedArrayBuffer postMessage only crosses iframe boundaries within
- * the same agent cluster, and a sandbox without `allow-same-origin` opaques
- * the iframe's origin into its own cluster.
- *
- * Bootstrap script prepended to every UI bundle:
- *   - sets up `window.__noa` with `onReady`, `setParam`, `pollNotify`, `manifest`,
- *     `initialParams`;
- *   - posts READY to the parent on `window.load`;
- *   - replies to HELLO by populating the globals and firing onReady callbacks.
- *
- * Plugin HTML stays minimal: knobs, sliders, scopes — anything that doesn't
- * need to know the ring binary format.
+ * the same agent cluster; a fully opaque sandbox isolates the iframe into its
+ * own cluster and the SAB transfer fails.
  */
 export class PluginUIHost {
   openWindow(args: OpenWindowArgs): OpenedWindow {
     if (!args.manifest.ui) {
       throw new Error(`PluginUIHost: ${args.manifest.id} has no UI manifest entry`);
     }
-    const entryBytes = args.uiAssets.get(args.manifest.ui.entry);
+    return args.serviceWorker
+      ? this.openViaServiceWorker(args, args.serviceWorker)
+      : this.openViaBlob(args);
+  }
+
+  private openViaBlob(args: OpenWindowArgs): OpenedWindow {
+    const entry = args.manifest.ui!.entry;
+    const entryBytes = args.uiAssets.get(entry);
     if (!entryBytes) {
-      throw new Error(
-        `PluginUIHost: ${args.manifest.id} uiAssets missing ${args.manifest.ui.entry}`,
-      );
+      throw new Error(`PluginUIHost: ${args.manifest.id} uiAssets missing ${entry}`);
     }
-    const userHtml = new TextDecoder('utf-8').decode(entryBytes);
-    const html = injectBootstrap(userHtml);
+    const html = injectBootstrap(new TextDecoder('utf-8').decode(entryBytes));
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
 
+    const iframe = this.makeIframe(url, args);
+    const detachMessage = this.attachMessageListener(iframe, args);
+    args.container.appendChild(iframe);
+
+    let closed = false;
+    return {
+      iframe,
+      close: () => {
+        if (closed) return;
+        closed = true;
+        detachMessage();
+        URL.revokeObjectURL(url);
+        iframe.remove();
+      },
+    };
+  }
+
+  private openViaServiceWorker(args: OpenWindowArgs, sw: ServiceWorker): OpenedWindow {
+    sw.postMessage({
+      type: 'BIND_INSTANCE',
+      instanceId: args.instanceId,
+      pluginId: args.manifest.id,
+      version: args.manifest.version,
+    });
+    const url = `/_noa/plugin-ui/${encodeURIComponent(args.instanceId)}/${args.manifest.ui!.entry}`;
+
+    const iframe = this.makeIframe(url, args);
+    const detachMessage = this.attachMessageListener(iframe, args);
+    args.container.appendChild(iframe);
+
+    let closed = false;
+    return {
+      iframe,
+      close: () => {
+        if (closed) return;
+        closed = true;
+        detachMessage();
+        try {
+          sw.postMessage({ type: 'UNBIND_INSTANCE', instanceId: args.instanceId });
+        } catch { /* SW might have died; nothing to clean up */ }
+        iframe.remove();
+      },
+    };
+  }
+
+  private makeIframe(src: string, args: OpenWindowArgs): HTMLIFrameElement {
     const iframe = document.createElement('iframe');
-    iframe.src = url;
+    iframe.src = src;
     iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
     iframe.style.width = '100%';
     iframe.style.height = '100%';
     iframe.style.border = 'none';
     iframe.style.display = 'block';
     iframe.title = `${args.manifest.name} plugin UI`;
+    return iframe;
+  }
 
+  private attachMessageListener(iframe: HTMLIFrameElement, args: OpenWindowArgs): () => void {
     const onMessage = (e: MessageEvent) => {
       if (e.source !== iframe.contentWindow) return;
       const msg = e.data as IframeToHost;
@@ -94,146 +150,9 @@ export class PluginUIHost {
         args.onPresetRequest?.(msg.bytes);
         return;
       }
-      // STATE_SNAPSHOT_* are part of the protocol but ignored in Phase 3 —
-      // built-in plugin state lives entirely in the WASM instance.
+      // STATE_SNAPSHOT_* messages are part of the protocol but unused in v1.
     };
-
     window.addEventListener('message', onMessage);
-    args.container.appendChild(iframe);
-
-    let closed = false;
-    return {
-      iframe,
-      close: () => {
-        if (closed) return;
-        closed = true;
-        window.removeEventListener('message', onMessage);
-        URL.revokeObjectURL(url);
-        iframe.remove();
-      },
-    };
+    return () => window.removeEventListener('message', onMessage);
   }
-}
-
-/**
- * Inline a small bootstrap before any user code. Vanilla JS — must run as
- * plain text inside the iframe, no module imports, no closures captured from
- * outside.
- */
-const BOOTSTRAP = `<script>
-(function () {
-  var EVT_PARAM_SET = 3;
-  var EVENT_FRAME_SIZE = 32;
-  var NOTIFY_FRAME_SIZE = 16;
-  var RB_HEADER_BYTES = 16;
-
-  function ringHeader(sab) { return new Uint32Array(sab, 0, 4); }
-
-  function pushParamSet(sab, paramIndex, value) {
-    var header = ringHeader(sab);
-    var write = Atomics.load(header, 0);
-    var read = Atomics.load(header, 1);
-    var capacity = header[2];
-    if (write - read >= capacity) return false;
-    var frameSize = header[3];
-    var slot = (write & (capacity - 1)) * frameSize;
-    var dst = new Uint8Array(sab, RB_HEADER_BYTES + slot, frameSize);
-    for (var i = 0; i < frameSize; i++) dst[i] = 0;
-    var view = new DataView(sab, RB_HEADER_BYTES + slot, frameSize);
-    view.setUint8(0, EVT_PARAM_SET);
-    view.setUint32(12, paramIndex >>> 0, true);
-    view.setFloat32(16, value, true);
-    Atomics.store(header, 0, write + 1);
-    return true;
-  }
-
-  function popNotify(sab) {
-    var header = ringHeader(sab);
-    var write = Atomics.load(header, 0);
-    var read = Atomics.load(header, 1);
-    if (read === write) return null;
-    var capacity = header[2];
-    var frameSize = header[3];
-    var slot = (read & (capacity - 1)) * frameSize;
-    var view = new DataView(sab, RB_HEADER_BYTES + slot, frameSize);
-    var msg = {
-      type: view.getUint8(0),
-      paramIndex: view.getUint32(4, true),
-      value: view.getFloat32(8, true),
-      blockCounter: view.getUint32(12, true),
-    };
-    Atomics.store(header, 1, read + 1);
-    return msg;
-  }
-
-  var noa = {
-    instanceId: null,
-    manifest: null,
-    initialParams: null,
-    paramRingSab: null,
-    notifyRingSab: null,
-    _readyCbs: [],
-    onReady: function (cb) {
-      if (noa.manifest) { try { cb(); } catch (e) { console.error(e); } }
-      else noa._readyCbs.push(cb);
-    },
-    setParam: function (paramIndex, value) {
-      if (!noa.paramRingSab) return false;
-      return pushParamSet(noa.paramRingSab, paramIndex, value);
-    },
-    pollNotify: function () {
-      if (!noa.notifyRingSab) return null;
-      return popNotify(noa.notifyRingSab);
-    },
-    /**
-     * Send a preset payload (plugin-defined bytes) to the host. The host
-     * routes the request to the per-instance worker for noa_preset_prepare,
-     * then applies the result on the worklet. Phase 4 v1.1.
-     */
-    applyPreset: function (bytes) {
-      if (!(bytes instanceof Uint8Array)) {
-        console.error('[noa] applyPreset: bytes must be a Uint8Array');
-        return false;
-      }
-      try {
-        window.parent.postMessage({ type: 'PRESET_REQUEST', bytes: bytes }, '*');
-        return true;
-      } catch (err) {
-        console.error('[noa] applyPreset failed', err);
-        return false;
-      }
-    },
-  };
-  window.__noa = noa;
-
-  window.addEventListener('message', function (e) {
-    var d = e.data;
-    if (!d || d.type !== 'HELLO') return;
-    noa.instanceId = d.instanceId;
-    noa.manifest = d.manifest;
-    noa.initialParams = d.initialParams;
-    noa.paramRingSab = d.paramRingSab;
-    noa.notifyRingSab = d.notifyRingSab;
-    var cbs = noa._readyCbs;
-    noa._readyCbs = [];
-    cbs.forEach(function (cb) { try { cb(); } catch (err) { console.error(err); } });
-  });
-
-  function announceReady() {
-    try { window.parent.postMessage({ type: 'READY' }, '*'); }
-    catch (err) { console.error('[noa] postMessage to parent failed', err); }
-  }
-  if (document.readyState === 'complete') announceReady();
-  else window.addEventListener('load', announceReady);
-})();
-</script>`;
-
-function injectBootstrap(userHtml: string): string {
-  if (/<\/head\s*>/i.test(userHtml)) {
-    return userHtml.replace(/<\/head\s*>/i, BOOTSTRAP + '$&');
-  }
-  if (/<body[^>]*>/i.test(userHtml)) {
-    return userHtml.replace(/<body([^>]*)>/i, '<body$1>' + BOOTSTRAP);
-  }
-  return BOOTSTRAP + userHtml;
 }

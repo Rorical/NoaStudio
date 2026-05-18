@@ -60,6 +60,20 @@ export default function App() {
   const [openWindows, setOpenWindows] = useState([]);
   const nextZRef = useRef(100);
 
+  // Active Service Worker once registration resolves. Null until the SW is
+  // installed and activated — PluginWindow falls back to Blob URLs in that
+  // interval and on browsers without SW support.
+  const [serviceWorker, setServiceWorker] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const reg = await window.__noa?.swReady;
+      if (cancelled || !reg) return;
+      setServiceWorker(reg.active ?? navigator.serviceWorker.controller ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     if (engineReady) engineRef.current?.setTempo(bpm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -510,6 +524,7 @@ export default function App() {
             onFocus={() => focusPluginWindow(win.instanceId)}
             onClose={() => closePluginWindow(win.instanceId)}
             onPresetRequest={handlePresetRequest}
+            serviceWorker={serviceWorker}
           />
         );
       })}

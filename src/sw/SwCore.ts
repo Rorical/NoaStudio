@@ -20,6 +20,7 @@
  */
 
 import type { OpfsPluginStore } from './OpfsPluginStore';
+import { injectBootstrap } from '../engine/pluginUiBootstrap';
 
 export interface MessageSource {
   postMessage(data: unknown): void;
@@ -168,9 +169,15 @@ export class SwCore {
 
     const bytes = await this.store.readFile(binding.pluginId, binding.version, 'ui/' + relPath);
     if (!bytes) return notFound();
-    return new Response(toBody(bytes), {
+    const contentType = contentTypeFor(relPath);
+    // HTML entries get the plugin-UI bootstrap injected so they can talk to
+    // the host via window.__noa without bundling the protocol themselves.
+    const body = contentType.startsWith('text/html')
+      ? new TextEncoder().encode(injectBootstrap(new TextDecoder().decode(bytes)))
+      : bytes;
+    return new Response(toBody(body), {
       status: 200,
-      headers: { ...COMMON_HEADERS, 'Content-Type': contentTypeFor(relPath) },
+      headers: { ...COMMON_HEADERS, 'Content-Type': contentType },
     });
   }
 }

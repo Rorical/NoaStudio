@@ -107,7 +107,9 @@ describe('SwCore plugin-ui (instance-scoped)', () => {
     const html = await core.handleFetch(new URL('https://app.test/_noa/plugin-ui/inst-1/index.html'));
     expect(html!.status).toBe(200);
     expect(html!.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
-    expect(await html!.text()).toBe('<html></html>');
+    // HTML responses get the bootstrap prepended; original content is preserved.
+    const body = await html!.text();
+    expect(body).toContain('<html></html>');
 
     const css = await core.handleFetch(new URL('https://app.test/_noa/plugin-ui/inst-1/style/main.css'));
     expect(css!.status).toBe(200);
@@ -116,6 +118,26 @@ describe('SwCore plugin-ui (instance-scoped)', () => {
 
     const svg = await core.handleFetch(new URL('https://app.test/_noa/plugin-ui/inst-1/logo.svg'));
     expect(svg!.headers.get('Content-Type')).toBe('image/svg+xml');
+  });
+
+  it('injects the plugin-UI bootstrap into HTML responses', async () => {
+    const store = makeStore();
+    await store.install({
+      pluginId: 'com.noa.sine', version: '1.0.0',
+      files: makeFiles({
+        'ui/index.html': '<html><head></head><body>x</body></html>',
+        'ui/style.css': 'body{}',
+      }),
+    });
+    const core = new SwCore(store);
+    core.handleMessage({ type: 'BIND_INSTANCE', instanceId: 'i', pluginId: 'com.noa.sine', version: '1.0.0' });
+    const html = await core.handleFetch(new URL('https://app.test/_noa/plugin-ui/i/index.html'));
+    const body = await html!.text();
+    expect(body).toContain('window.__noa');
+    expect(body).toContain('<body>x</body>');
+    // CSS responses are passed through untouched.
+    const css = await core.handleFetch(new URL('https://app.test/_noa/plugin-ui/i/style.css'));
+    expect(await css!.text()).toBe('body{}');
   });
 
   it('returns 404 for an unbound instance', async () => {

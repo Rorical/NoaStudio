@@ -22,6 +22,7 @@ export default function PluginWindow({
   onFocus,
   onClose,
   onPresetRequest,
+  serviceWorker,
 }) {
   const panelRef = useRef(null);
   const containerRef = useRef(null);
@@ -41,9 +42,10 @@ export default function PluginWindow({
       paramRingSab, notifyRingSab,
       container,
       onPresetRequest: (bytes) => presetCbRef.current?.(instanceId, bytes),
+      serviceWorker,
     });
     return () => opened.close();
-  }, [instanceId, manifest, uiAssets, initialParams, paramRingSab, notifyRingSab]);
+  }, [instanceId, manifest, uiAssets, initialParams, paramRingSab, notifyRingSab, serviceWorker]);
 
   // Clamp to viewport on resize.
   useEffect(() => {
