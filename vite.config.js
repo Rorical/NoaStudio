@@ -7,8 +7,40 @@ const isolationHeaders = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 };
 
+/**
+ * Dev-mode shim: serve the plugin-cache Service Worker at the same URL the
+ * production build emits (`/plugin-cache-sw.js`) so `registerSW` can use one
+ * stable path. Vite would otherwise leave `/plugin-cache-sw.js` to the SPA
+ * fallback and reply with index.html, which fails MIME-type validation.
+ */
+function pluginCacheSwDev() {
+  return {
+    name: 'noa-plugin-cache-sw-dev',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const url = req.url ?? '';
+        if (url !== '/plugin-cache-sw.js' && !url.startsWith('/plugin-cache-sw.js?')) {
+          return next();
+        }
+        try {
+          const transformed = await server.transformRequest('/src/sw/plugin-cache.sw.ts');
+          if (!transformed) return next();
+          res.setHeader('Content-Type', 'application/javascript');
+          res.setHeader('Service-Worker-Allowed', '/');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(transformed.code);
+        } catch (err) {
+          server.config.logger.error('[noa-plugin-cache-sw-dev] transform failed: ' + err);
+          next(err);
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), pluginCacheSwDev()],
   server: {
     port: 5173,
     headers: isolationHeaders,

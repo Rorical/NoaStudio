@@ -24,15 +24,33 @@ const ports = new Set<MessagePort>();
 let nextPortId = 1;
 const portIds = new WeakMap<MessagePort, number>();
 
+/**
+ * Structural compatibility check against the current Project schema. When a
+ * saved project predates a schema change (e.g. lacks `installedPlugins`)
+ * we discard it and reseed rather than spinning up a half-typed reducer
+ * — per the project's no-backcompat rule, schema breaks are clean breaks.
+ */
+function isProjectCompatible(p: unknown): p is Project {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return Array.isArray(o.tracks)
+    && Array.isArray(o.clips)
+    && Array.isArray(o.channels)
+    && Array.isArray(o.installedPlugins)
+    && typeof o.bpm === 'number';
+}
+
 void (async () => {
   try {
     const persisted = await store.read();
-    if (persisted) {
+    if (persisted && isProjectCompatible(persisted)) {
       state = persisted;
-      // Re-broadcast to any tabs that connected during the load window.
       for (const p of ports) {
         p.postMessage({ kind: 'snapshot', state } satisfies WorkerToClient);
       }
+    } else if (persisted) {
+      console.warn('[coordinator] saved project predates current schema; reseeding');
+      saver.schedule(state);
     }
   } catch (e) {
     console.error('[coordinator] OPFS read failed; using seed', e);
