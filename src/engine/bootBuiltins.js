@@ -1,23 +1,33 @@
-// Builds a PluginRegistry containing the two Phase 3 built-in plugins.
+// Builds a PluginRegistry containing the two Phase 3 built-in plugins,
+// including their UI HTML preloaded into `uiAssets`. Vite resolves the
+// ?url / ?raw / JSON imports at build time.
 //
 // Built-in plugins use folder-named wasm (`sine.wasm`, `gain.wasm`) rather
-// than the spec's canonical `plugin.wasm` so Rollup's emitFile, which dedupes
-// asset entries by basename, can emit both. ZIP-packaged plugins in Phase 5
-// will use `plugin.wasm` inside the archive — the unpacked OPFS path is
-// content-addressed and naturally unique.
+// than the spec's canonical `plugin.wasm` to avoid Rollup's basename-keyed
+// asset deduplication. ZIP-packaged plugins in Phase 5 will use `plugin.wasm`
+// inside the archive — the unpacked OPFS path is content-addressed and
+// naturally unique.
 
 import { PluginRegistry } from './PluginRegistry';
 import { parseManifest } from './PluginManifest';
 
 import sineManifestJson from '../builtin-plugins/sine/plugin.json';
 import sineWasmUrl from '../builtin-plugins/sine/sine.wasm?url';
+import sineUiHtml from '../builtin-plugins/sine/ui/index.html?raw';
 import gainManifestJson from '../builtin-plugins/gain/plugin.json';
 import gainWasmUrl from '../builtin-plugins/gain/gain.wasm?url';
+import gainUiHtml from '../builtin-plugins/gain/ui/index.html?raw';
 
 async function compile(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`bootBuiltins: ${url} failed (${res.status})`);
   return WebAssembly.compileStreaming(res);
+}
+
+function uiAssetsFromHtml(entry, html) {
+  const map = new Map();
+  map.set(entry, new TextEncoder().encode(html));
+  return map;
 }
 
 export async function bootBuiltinRegistry() {
@@ -26,15 +36,17 @@ export async function bootBuiltinRegistry() {
     compile(sineWasmUrl),
     compile(gainWasmUrl),
   ]);
+  const sineManifest = parseManifest(sineManifestJson);
+  const gainManifest = parseManifest(gainManifestJson);
   registry.install({
-    manifest: parseManifest(sineManifestJson),
+    manifest: sineManifest,
     module: sineModule,
-    uiAssets: new Map(),
+    uiAssets: sineManifest.ui ? uiAssetsFromHtml(sineManifest.ui.entry, sineUiHtml) : new Map(),
   });
   registry.install({
-    manifest: parseManifest(gainManifestJson),
+    manifest: gainManifest,
     module: gainModule,
-    uiAssets: new Map(),
+    uiAssets: gainManifest.ui ? uiAssetsFromHtml(gainManifest.ui.entry, gainUiHtml) : new Map(),
   });
   return registry;
 }

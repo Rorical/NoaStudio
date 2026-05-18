@@ -1121,3 +1121,66 @@
 .status-divider { width: 1px; height: 14px; background: var(--m3-outline-variant); }
 .status-spacer { flex: 1; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+
+/* ===== PLUGIN WINDOW ===== */
+.plugin-window {
+  position: fixed;
+  background: var(--m3-surface-container-high);
+  border: 1px solid var(--m3-outline-variant);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--m3-on-surface);
+}
+.plugin-window-head {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  background: var(--m3-surface-container-highest);
+  border-bottom: 1px solid var(--m3-outline-variant);
+  cursor: move;
+  user-select: none;
+}
+.plugin-window-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--m3-primary);
+}
+.plugin-window-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+}
+.plugin-window-x {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--m3-on-surface-variant);
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.plugin-window-x:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--m3-on-surface);
+}
+[data-theme="light"] .plugin-window-x:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+.plugin-window-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.plugin-window-body iframe {
+  flex: 1;
+}

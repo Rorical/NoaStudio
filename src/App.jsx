@@ -5,14 +5,16 @@ import Playlist from './components/Playlist.jsx';
 import PianoRoll from './components/PianoRoll.jsx';
 import Mixer from './components/Mixer.jsx';
 import TweaksPanel from './components/TweaksPanel.jsx';
+import PluginWindow from './components/PluginWindow.jsx';
 import { TRACK_COLORS, PLUGINS, FILES } from './data.js';
-
-const PLUGIN_CATALOG = new Map(
-  PLUGINS.filter((p) => p.pluginId).map((p) => [p.pluginId, p]),
-);
 import { useEngine } from './engine/useEngine.js';
 import { bootBuiltinRegistry } from './engine/bootBuiltins.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
+
+// Drag-source catalog for the Browser pane. Keyed by pluginId.
+const DRAG_CATALOG = new Map(
+  PLUGINS.filter((p) => p.pluginId).map((p) => [p.pluginId, p]),
+);
 
 const selectTracks = (p) => p.tracks;
 const selectClips = (p) => p.clips;
@@ -45,6 +47,18 @@ export default function App() {
 
   // instanceId → slot in the worklet chain. Populated by the boot effect below.
   const slotMapRef = useRef(new Map());
+  // instanceId → { paramRingSab, notifyRingSab } — needed to open plugin UIs.
+  const instanceRingsRef = useRef(new Map());
+  // Compiled plugin registry; ref-only because consumers read it imperatively
+  // when opening a window (the catalog state below is what triggers re-renders).
+  const registryRef = useRef(null);
+  // Display catalog: pluginId → { name, kind, tag, hasUi }. Starts with the
+  // Browser's drag entries, gets enriched once the engine boot loads each
+  // plugin's manifest (which is when hasUi becomes known).
+  const [pluginCatalog, setPluginCatalog] = useState(DRAG_CATALOG);
+  // UI-ephemeral plugin windows. Each entry: { instanceId, z }. Not persisted.
+  const [openWindows, setOpenWindows] = useState([]);
+  const nextZRef = useRef(100);
 
   useEffect(() => {
     if (engineReady) engineRef.current?.setTempo(bpm);
@@ -70,8 +84,25 @@ export default function App() {
       try {
         const registry = await bootBuiltinRegistry();
         if (cancelled) return;
+        registryRef.current = registry;
+
+        // Build the runtime plugin catalog from the registry (enriches the
+        // static drag-source entries with kind + hasUi info).
+        const catalog = new Map(DRAG_CATALOG);
+        for (const entry of registry.list()) {
+          const prev = catalog.get(entry.manifest.id) ?? {};
+          catalog.set(entry.manifest.id, {
+            ...prev,
+            name: entry.manifest.name,
+            kind: entry.manifest.kind,
+            tag: prev.tag ?? '',
+            hasUi: !!entry.manifest.ui,
+          });
+        }
+        if (!cancelled) setPluginCatalog(catalog);
 
         const map = new Map();
+        const rings = new Map();
         let nextSlot = 0;
 
         const loadOne = async (instance) => {
@@ -81,7 +112,7 @@ export default function App() {
             ? instance.params
             : entry.manifest.params.map((p) => p.default);
           const slot = nextSlot++;
-          await engine.loadPlugin({
+          const result = await engine.loadPlugin({
             instanceId: instance.id,
             slot,
             module: entry.module,
@@ -89,6 +120,10 @@ export default function App() {
             initialParams,
           });
           map.set(instance.id, slot);
+          rings.set(instance.id, {
+            paramRingSab: result.paramRingSab,
+            notifyRingSab: result.notifyRingSab,
+          });
         };
 
         for (const track of tracksRef.current) {
@@ -102,6 +137,7 @@ export default function App() {
           }
         }
         slotMapRef.current = map;
+        instanceRingsRef.current = rings;
       } catch (err) {
         console.error('Plugin boot failed:', err);
       }
@@ -109,6 +145,32 @@ export default function App() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineReady]);
+
+  // Find a PluginInstance by id across tracks + channels. Used by the open
+  // plugin windows to pull the current params for HELLO.
+  const findInstance = useCallback((instanceId) => {
+    for (const t of tracks) if (t.generator?.id === instanceId) return t.generator;
+    for (const c of channels) for (const fx of c.effects) if (fx.id === instanceId) return fx;
+    return null;
+  }, [tracks, channels]);
+
+  const openPluginWindow = useCallback((instanceId) => {
+    const z = ++nextZRef.current;
+    setOpenWindows((prev) => {
+      const existing = prev.find((w) => w.instanceId === instanceId);
+      if (existing) return prev.map((w) => (w.instanceId === instanceId ? { ...w, z } : w));
+      return [...prev, { instanceId, z }];
+    });
+  }, []);
+
+  const closePluginWindow = useCallback((instanceId) => {
+    setOpenWindows((prev) => prev.filter((w) => w.instanceId !== instanceId));
+  }, []);
+
+  const focusPluginWindow = useCallback((instanceId) => {
+    const z = ++nextZRef.current;
+    setOpenWindows((prev) => prev.map((w) => (w.instanceId === instanceId ? { ...w, z } : w)));
+  }, []);
 
   const [view, setView] = useState('tracks');
   const [browserOpen, setBrowserOpen] = useState(true);
@@ -354,7 +416,7 @@ export default function App() {
               playing={playing}
               onSetTime={setTime}
               onAssignGenerator={assignGenerator}
-              pluginCatalog={PLUGIN_CATALOG}
+              pluginCatalog={pluginCatalog}
               trackColors={TRACK_COLORS}
               onMuteTrack={toggleTrackMute}
               onSoloTrack={toggleTrackSolo}
@@ -384,7 +446,8 @@ export default function App() {
             onAddEffect={addEffect}
             onRemoveEffect={removeEffect}
             onBypassEffect={bypassEffect}
-            pluginCatalog={PLUGIN_CATALOG}
+            onOpenEditor={openPluginWindow}
+            pluginCatalog={pluginCatalog}
             trackColors={TRACK_COLORS}
             wide
           />
@@ -405,6 +468,28 @@ export default function App() {
       </footer>
 
       <TweaksPanel open={tweaksOpen} onClose={() => setTweaksOpen(false)} theme={theme} onTheme={setTheme} />
+
+      {openWindows.map((win) => {
+        const inst = findInstance(win.instanceId);
+        const registry = registryRef.current;
+        const rings = instanceRingsRef.current.get(win.instanceId);
+        if (!inst || !registry || !registry.has(inst.pluginId) || !rings) return null;
+        const entry = registry.get(inst.pluginId);
+        return (
+          <PluginWindow
+            key={win.instanceId}
+            instanceId={win.instanceId}
+            manifest={entry.manifest}
+            uiAssets={entry.uiAssets}
+            initialParams={inst.params}
+            paramRingSab={rings.paramRingSab}
+            notifyRingSab={rings.notifyRingSab}
+            zIndex={win.z}
+            onFocus={() => focusPluginWindow(win.instanceId)}
+            onClose={() => closePluginWindow(win.instanceId)}
+          />
+        );
+      })}
     </div>
   );
 }

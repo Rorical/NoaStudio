@@ -4,7 +4,7 @@ import Icon from './Icon.jsx';
 export default function Mixer({
   channels, levels, selectedChannelId, onSelectChannel,
   onFader, onPan, onMute, onSolo, onAddEffect, onRemoveEffect, onBypassEffect,
-  pluginCatalog, trackColors, wide,
+  onOpenEditor, pluginCatalog, trackColors, wide,
 }) {
   // pluginCatalog: Map<pluginId, { name: string, kind: 'gen' | 'fx', tag?: string }>
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -75,6 +75,7 @@ export default function Mixer({
           lookup={lookup}
           onRemoveEffect={(iid) => onRemoveEffect(selectedChannel.id, iid)}
           onBypassEffect={(iid, current) => onBypassEffect(selectedChannel.id, iid, current)}
+          onOpenEditor={onOpenEditor}
           onDrop={(e) => onFxPanelDrop(e, selectedChannel)}
         />
       </div>
@@ -205,7 +206,7 @@ function ChannelStrip({ channel, color, level, level2, selected, isMaster, isBus
   );
 }
 
-function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onDrop }) {
+function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onOpenEditor, onDrop }) {
   const [over, setOver] = useState(false);
   if (!channel) return null;
   return (
@@ -237,8 +238,10 @@ function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onDro
             index={i}
             color={color}
             info={lookup?.(fx.pluginId)}
+            hasUi={lookup?.(fx.pluginId)?.hasUi ?? false}
             onBypass={() => onBypassEffect(fx.id, fx.bypass)}
             onRemove={() => onRemoveEffect(fx.id)}
+            onOpenEditor={() => onOpenEditor?.(fx.id)}
           />
         ))}
 
@@ -269,12 +272,15 @@ function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onDro
 
 const FX_ICON = { gen: 'synth', fx: 'tune' };
 
-function FxCard({ fx, info, onBypass, onRemove }) {
+function FxCard({ fx, info, hasUi, onBypass, onRemove, onOpenEditor }) {
   const displayName = info?.name ?? fx.pluginId;
   const kind = info?.kind ?? 'fx';
   const wet = kind === 'fx' ? 0.65 : 0.85;
   return (
-    <div className={`fx-card ${fx.bypass ? 'bypass' : ''}`}>
+    <div
+      className={`fx-card ${fx.bypass ? 'bypass' : ''}`}
+      onDoubleClick={hasUi ? onOpenEditor : undefined}
+    >
       <div className="fx-card-grip" title="Drag to reorder">
         <Icon name="drag" size={14} />
       </div>
@@ -296,7 +302,12 @@ function FxCard({ fx, info, onBypass, onRemove }) {
         </div>
       </div>
       <div className="fx-card-actions">
-        <button className="btn-icon tiny" title="Open editor"><Icon name="tune" size={14} /></button>
+        <button
+          className="btn-icon tiny"
+          title={hasUi ? 'Open editor' : 'No editor'}
+          disabled={!hasUi}
+          onClick={onOpenEditor}
+        ><Icon name="tune" size={14} /></button>
         <button className="btn-icon tiny" title="Remove" onClick={onRemove}><Icon name="close" size={14} /></button>
       </div>
     </div>

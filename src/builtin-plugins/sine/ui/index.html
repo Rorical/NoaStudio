@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sine</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #15161a;
+    --fg: #e9eaee;
+    --muted: #9a9ba5;
+    --accent: #ff6b9d;
+    --rail: #2a2c33;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px;
+    height: 100%;
+    user-select: none;
+  }
+  body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  h1 {
+    margin: 0;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .row { display: flex; gap: 12px; justify-content: center; flex: 1; align-items: center; }
+  .knob-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .knob { width: 76px; height: 76px; cursor: ns-resize; }
+  .knob svg { width: 100%; height: 100%; display: block; }
+  .knob .ring { stroke: var(--rail); stroke-width: 5; fill: none; }
+  .knob .arc { stroke: var(--accent); stroke-width: 5; fill: none; stroke-linecap: round; }
+  .knob .tick { stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
+  .label { font-weight: 600; }
+  .value { color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<h1>Sine</h1>
+<div class="row">
+  <div class="knob-cell">
+    <div class="knob" id="k0" tabindex="0" role="slider" aria-label="Volume">
+      <svg viewBox="0 0 100 100">
+        <circle class="ring" cx="50" cy="50" r="38" />
+        <path class="arc" id="arc0" d="" />
+        <line class="tick" id="tick0" x1="50" y1="50" x2="50" y2="22" />
+      </svg>
+    </div>
+    <div class="label">Volume</div>
+    <div class="value" id="value0">—</div>
+  </div>
+  <div class="knob-cell">
+    <div class="knob" id="k1" tabindex="0" role="slider" aria-label="Octave">
+      <svg viewBox="0 0 100 100">
+        <circle class="ring" cx="50" cy="50" r="38" />
+        <path class="arc" id="arc1" d="" />
+        <line class="tick" id="tick1" x1="50" y1="50" x2="50" y2="22" />
+      </svg>
+    </div>
+    <div class="label">Octave</div>
+    <div class="value" id="value1">—</div>
+  </div>
+</div>
+<script>
+  window.__noa.onReady(function () {
+    var manifest = window.__noa.manifest;
+    var initial = window.__noa.initialParams.slice();
+
+    var SWEEP = 270, START = -135;
+    function polar(cx, cy, r, deg) {
+      var rad = (deg - 90) * Math.PI / 180;
+      return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+    }
+
+    function makeKnob(idx, format) {
+      var decl = manifest.params[idx];
+      var min = decl.min, max = decl.max;
+      var step = decl.step || 0;
+      var value = initial[idx];
+
+      var root = document.getElementById('k' + idx);
+      var arc = document.getElementById('arc' + idx);
+      var tick = document.getElementById('tick' + idx);
+      var readout = document.getElementById('value' + idx);
+
+      function angle(v) {
+        var t = (v - min) / (max - min);
+        return START + SWEEP * t;
+      }
+      function arcPath(v) {
+        var a0 = angle(min), a1 = angle(v), r = 38;
+        var p0 = polar(50, 50, r, a0);
+        var p1 = polar(50, 50, r, a1);
+        var large = (a1 - a0) > 180 ? 1 : 0;
+        return 'M ' + p0[0] + ' ' + p0[1] + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + p1[0] + ' ' + p1[1];
+      }
+      function tickAt(v) {
+        var a = angle(v);
+        var p = polar(50, 50, 28, a);
+        tick.setAttribute('x2', p[0]);
+        tick.setAttribute('y2', p[1]);
+      }
+      function render() {
+        arc.setAttribute('d', arcPath(value));
+        tickAt(value);
+        readout.textContent = format(value);
+        root.setAttribute('aria-valuenow', String(value));
+        root.setAttribute('aria-valuemin', String(min));
+        root.setAttribute('aria-valuemax', String(max));
+      }
+      function commit(v) {
+        v = Math.max(min, Math.min(max, v));
+        if (step > 0) v = Math.round(v / step) * step;
+        if (v === value) return;
+        value = v;
+        render();
+        window.__noa.setParam(idx, value);
+      }
+      function externalSet(v) {
+        value = v;
+        render();
+      }
+
+      var startY = 0, startValue = 0, dragging = false;
+      root.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        dragging = true;
+        startY = e.clientY;
+        startValue = value;
+        root.focus();
+      });
+      window.addEventListener('mousemove', function (e) {
+        if (!dragging) return;
+        var dy = startY - e.clientY;
+        commit(startValue + dy * (max - min) / 200);
+      });
+      window.addEventListener('mouseup', function () { dragging = false; });
+      root.addEventListener('dblclick', function () { commit(decl.default); });
+      root.addEventListener('keydown', function (e) {
+        var s = step > 0 ? step : (e.shiftKey ? 0.1 : 0.01) * (max - min);
+        if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { commit(value + s); e.preventDefault(); }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { commit(value - s); e.preventDefault(); }
+      });
+
+      render();
+      return { externalSet: externalSet, decl: decl };
+    }
+
+    var k0 = makeKnob(0, function (v) { return (v * 100).toFixed(0) + '%'; });
+    var k1 = makeKnob(1, function (v) {
+      var n = Math.round(v);
+      return (n > 0 ? '+' : '') + n;
+    });
+    var ks = [k0, k1];
+
+    function pollLoop() {
+      var msg;
+      while ((msg = window.__noa.pollNotify())) {
+        if (msg.type === 1 && ks[msg.paramIndex]) ks[msg.paramIndex].externalSet(msg.value);
+      }
+      requestAnimationFrame(pollLoop);
+    }
+    requestAnimationFrame(pollLoop);
+  });
+</script>
+</body>
+</html>

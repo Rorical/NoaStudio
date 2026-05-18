@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gain</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #15161a;
+    --fg: #e9eaee;
+    --muted: #9a9ba5;
+    --accent: #5cc8ff;
+    --rail: #2a2c33;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 12px;
+    height: 100%;
+    user-select: none;
+  }
+  body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+  h1 {
+    margin: 0;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .knob-row { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; justify-content: center; }
+  .knob { width: 88px; height: 88px; position: relative; cursor: ns-resize; }
+  .knob svg { width: 100%; height: 100%; display: block; }
+  .knob .ring { stroke: var(--rail); stroke-width: 6; fill: none; }
+  .knob .arc { stroke: var(--accent); stroke-width: 6; fill: none; stroke-linecap: round; }
+  .knob .tick { stroke: var(--fg); stroke-width: 2; stroke-linecap: round; }
+  .label { font-weight: 600; }
+  .value { color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<h1>Gain</h1>
+<div class="knob-row">
+  <div class="knob" id="knob" tabindex="0" role="slider"
+       aria-label="Gain" aria-valuemin="0" aria-valuemax="4">
+    <svg viewBox="0 0 100 100">
+      <circle class="ring" cx="50" cy="50" r="38" />
+      <path class="arc" id="arc" d="" />
+      <line class="tick" id="tick" x1="50" y1="50" x2="50" y2="22" />
+    </svg>
+  </div>
+  <div class="label">Gain</div>
+  <div class="value" id="value">— dB</div>
+</div>
+<script>
+  window.__noa.onReady(function () {
+    var manifest = window.__noa.manifest;
+    var initial = window.__noa.initialParams;
+    var decl = manifest.params[0];
+    var min = decl.min, max = decl.max;
+    var value = initial[0];
+
+    var knob = document.getElementById('knob');
+    var arc = document.getElementById('arc');
+    var tick = document.getElementById('tick');
+    var readout = document.getElementById('value');
+
+    // Visual range: -135° to +135° around 12 o'clock.
+    var SWEEP = 270;
+    var START = -135;
+
+    function valueToAngle(v) {
+      var t = (v - min) / (max - min);
+      return START + SWEEP * t;
+    }
+    function polar(cx, cy, r, deg) {
+      var rad = (deg - 90) * Math.PI / 180;
+      return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+    }
+    function arcPath(v) {
+      var a0 = valueToAngle(min);
+      var a1 = valueToAngle(v);
+      var r = 38;
+      var p0 = polar(50, 50, r, a0);
+      var p1 = polar(50, 50, r, a1);
+      var large = (a1 - a0) > 180 ? 1 : 0;
+      return 'M ' + p0[0] + ' ' + p0[1] + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + p1[0] + ' ' + p1[1];
+    }
+    function tickAt(v) {
+      var a = valueToAngle(v);
+      var [x, y] = polar(50, 50, 28, a);
+      tick.setAttribute('x2', x);
+      tick.setAttribute('y2', y);
+    }
+    function dbStr(v) {
+      if (v <= 1e-4) return '-∞ dB';
+      var db = 20 * Math.log10(v);
+      return (db >= 0 ? '+' : '') + db.toFixed(1) + ' dB';
+    }
+    function render() {
+      arc.setAttribute('d', arcPath(value));
+      tickAt(value);
+      readout.textContent = dbStr(value);
+      knob.setAttribute('aria-valuenow', String(value));
+    }
+
+    function commit(v) {
+      value = Math.max(min, Math.min(max, v));
+      render();
+      window.__noa.setParam(0, value);
+    }
+
+    var dragging = false;
+    var startY = 0;
+    var startValue = 0;
+    knob.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      dragging = true;
+      startY = e.clientY;
+      startValue = value;
+      knob.focus();
+    });
+    window.addEventListener('mousemove', function (e) {
+      if (!dragging) return;
+      var dy = startY - e.clientY;
+      var range = max - min;
+      commit(startValue + dy * range / 200);
+    });
+    window.addEventListener('mouseup', function () { dragging = false; });
+    knob.addEventListener('dblclick', function () { commit(decl.default); });
+    knob.addEventListener('keydown', function (e) {
+      var step = (e.shiftKey ? 0.5 : 0.05) * (max - min);
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { commit(value + step); e.preventDefault(); }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { commit(value - step); e.preventDefault(); }
+    });
+
+    function pollLoop() {
+      var msg;
+      while ((msg = window.__noa.pollNotify())) {
+        // type 1 = ParamChanged from engine
+        if (msg.type === 1 && msg.paramIndex === 0) {
+          value = msg.value;
+          render();
+        }
+      }
+      requestAnimationFrame(pollLoop);
+    }
+    requestAnimationFrame(pollLoop);
+
+    render();
+  });
+</script>
+</body>
+</html>

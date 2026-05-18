@@ -6,5 +6,6 @@
   "kind": "fx",
   "params": [
     { "name": "Gain", "min": 0, "max": 4, "default": 1, "unit": "x", "display": "db" }
-  ]
+  ],
+  "ui": { "entry": "index.html", "width": 220, "height": 200 }
 }
