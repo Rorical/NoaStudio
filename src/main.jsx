@@ -2,6 +2,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import { registerSW } from './sw/registerSW.js';
+import { OpfsPluginStore } from './sw/OpfsPluginStore';
+import { seedBuiltins } from './sw/seedBuiltins.js';
 import './styles/styles.css';
 import './styles/styles-components.css';
 
@@ -10,5 +12,19 @@ import './styles/styles-components.css';
 // available and consumers fall back to Blob URLs.
 window.__noa = window.__noa ?? {};
 window.__noa.swReady = registerSW();
+
+// First-boot OPFS seed for the built-in plugins. Runs in parallel with SW
+// registration since the OPFS layer is independent; consumers that need to
+// fetch via the SW should await both `swReady` and `seedReady`.
+window.__noa.seedReady = (async () => {
+  if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return;
+  try {
+    const root = await navigator.storage.getDirectory();
+    const pluginsRoot = await root.getDirectoryHandle('plugins', { create: true });
+    await seedBuiltins(new OpfsPluginStore(pluginsRoot));
+  } catch (err) {
+    console.warn('[noa] OPFS seed failed:', err);
+  }
+})();
 
 createRoot(document.getElementById('root')).render(<App />);
