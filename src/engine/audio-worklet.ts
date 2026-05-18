@@ -2,11 +2,11 @@
 import { RingBuffer } from './RingBuffer';
 import {
   EVENT_FRAME_SIZE,
-  decodeEvent,
-  EVT_NOTE_ON, EVT_NOTE_OFF, EVT_PARAM_SET,
+  rewriteFrameOffset,
 } from './EngineEvent';
 import { PluginInstance } from './PluginInstance';
 import { PluginChain } from './PluginChain';
+import { MixerRouter, type RoutingConfig } from './MixerRouter';
 import type { PluginManifest } from './PluginManifest';
 
 const METER_FRAME_SIZE = 16;
@@ -15,6 +15,12 @@ const METER_FRAME_SIZE = 16;
  * Plugin instances allocate buffers sized to this value.
  */
 const MAX_WORKLET_BLOCK = 128;
+/**
+ * Soft cap on the pending-event queue. Phase 6a's ClipScheduler looks ahead
+ * ~50 ms; at 48 kHz that's a couple thousand samples and ~50 notes worst case,
+ * comfortably below this bound.
+ */
+const MAX_PENDING_EVENTS = 4096;
 
 interface NoaProcessorOptions {
   eventSab: SharedArrayBuffer;
@@ -25,6 +31,8 @@ interface NoaProcessorOptions {
 interface InstantiateMessage {
   type: 'INSTANTIATE_PLUGIN';
   instanceId: string;
+  numericId: number;
+  chainId: string;
   slot: number;
   /**
    * Raw WASM bytes. WebAssembly.Module instances are not structured-cloneable
@@ -38,26 +46,50 @@ interface InstantiateMessage {
 
 interface DestroyMessage {
   type: 'DESTROY_INSTANCE';
+  numericId: number;
+  chainId: string;
   slot: number;
 }
 
 interface ApplyPresetStateMessage {
   type: 'APPLY_PRESET_STATE';
+  chainId: string;
   slot: number;
   stateBytes: Uint8Array;
 }
 
-type WorkletInbound = InstantiateMessage | DestroyMessage | ApplyPresetStateMessage;
+interface UpdateRoutingMessage {
+  type: 'UPDATE_ROUTING';
+  config: RoutingConfig;
+}
+
+type WorkletInbound =
+  | InstantiateMessage
+  | DestroyMessage
+  | ApplyPresetStateMessage
+  | UpdateRoutingMessage;
+
+interface PendingEvent {
+  sampleTime: number;
+  frame: Uint8Array;
+}
 
 class NoaEngineProcessor extends AudioWorkletProcessor {
   private readonly eventRing: RingBuffer;
   private readonly meterRing: RingBuffer;
   private readonly telemetry: Uint32Array;
-  private readonly chain = new PluginChain(MAX_WORKLET_BLOCK);
+  private readonly router = new MixerRouter(MAX_WORKLET_BLOCK);
   private readonly outBus = new Float32Array(MAX_WORKLET_BLOCK * 2);
   private readonly eventFrame = new Uint8Array(EVENT_FRAME_SIZE);
+  private readonly eventFrameView: DataView;
   private readonly meterFrame = new Uint8Array(METER_FRAME_SIZE);
   private readonly meterView = new DataView(this.meterFrame.buffer);
+  /** Re-used pool of frame buffers for the pending-event queue. */
+  private readonly framePool: Uint8Array[] = [];
+  /** Events scheduled in the future, sorted by sampleTime each block. */
+  private pending: PendingEvent[] = [];
+  /** Map of chainId → PluginChain so instances can grow chains incrementally. */
+  private readonly pluginChains = new Map<string, PluginChain>();
   private sampleCounter = 0;
   private blockCounter = 0;
 
@@ -67,10 +99,12 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     this.eventRing = new RingBuffer(p.eventSab);
     this.meterRing = new RingBuffer(p.meterSab);
     this.telemetry = new Uint32Array(p.telemetrySab);
-    // Handle control messages immediately rather than queuing for process().
-    // The audio worklet's port delivers messages even when the AudioContext is
-    // suspended, so this lets the main thread complete `engine.loadPlugin()`
-    // before any user gesture has resumed the context.
+    this.eventFrameView = new DataView(
+      this.eventFrame.buffer,
+      this.eventFrame.byteOffset,
+      EVENT_FRAME_SIZE,
+    );
+
     this.port.onmessage = (e: MessageEvent) => {
       const m = e.data as WorkletInbound;
       switch (m.type) {
@@ -78,18 +112,30 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
           this.handleInstantiate(m);
           break;
         case 'DESTROY_INSTANCE':
-          this.chain.uninstall(m.slot);
+          this.handleDestroy(m);
           break;
         case 'APPLY_PRESET_STATE':
           this.handleApplyPresetState(m);
+          break;
+        case 'UPDATE_ROUTING':
+          this.router.updateRouting(m.config);
           break;
       }
     };
   }
 
+  private getOrCreateChain(chainId: string): PluginChain {
+    let chain = this.pluginChains.get(chainId);
+    if (!chain) {
+      chain = new PluginChain(MAX_WORKLET_BLOCK);
+      this.pluginChains.set(chainId, chain);
+      this.router.installChain(chainId, chain);
+    }
+    return chain;
+  }
+
   private handleInstantiate(m: InstantiateMessage): void {
     try {
-      // Sync compile inside the worklet — allowed in worker-like contexts.
       // Cast through `BufferSource` because TS 5.7's stricter typing narrows
       // Uint8Array<ArrayBufferLike> away from the WebAssembly.Module sig.
       const module = new WebAssembly.Module(m.wasm as unknown as BufferSource);
@@ -99,10 +145,14 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
         allocateRings: true,
         ...(m.initialParams ? { initialParams: m.initialParams } : {}),
       });
-      this.chain.install(m.slot, inst);
+      const chain = this.getOrCreateChain(m.chainId);
+      chain.install(m.slot, inst);
+      this.router.registerInstance(m.numericId, m.chainId, m.slot);
       this.port.postMessage({
         type: 'INSTANCE_READY',
         instanceId: m.instanceId,
+        numericId: m.numericId,
+        chainId: m.chainId,
         slot: m.slot,
         paramRingSab: inst.paramRingSab,
         notifyRingSab: inst.notifyRingSab,
@@ -116,32 +166,70 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     }
   }
 
+  private handleDestroy(m: DestroyMessage): void {
+    const chain = this.pluginChains.get(m.chainId);
+    if (chain) chain.uninstall(m.slot);
+    this.router.unregisterInstance(m.numericId);
+  }
+
   private handleApplyPresetState(m: ApplyPresetStateMessage): void {
-    const inst = this.chain.get(m.slot);
+    const chain = this.pluginChains.get(m.chainId);
+    const inst = chain?.get(m.slot);
     if (!inst) return;
-    // setState is expected to be O(memcpy) per the ABI v1.1 contract.
-    // Calling it inside onmessage is safe — the worklet thread is
-    // single-threaded so process() can't run concurrently.
     inst.setState(m.stateBytes);
-    // Push one ParamChanged frame per declared param so the open plugin UI
-    // animates its knobs to match the new state. Cheap (<= manifest.params
-    // .length writes) and there's no race because onmessage and process()
-    // serialize on the worklet thread.
     const paramCount = inst.manifest.params.length;
     for (let i = 0; i < paramCount; i++) {
       inst.pushNotifyParamChanged(i, inst.readParam(i), this.blockCounter);
     }
   }
 
-  private drainEventsIntoChain(): void {
+  private acquireFrame(): Uint8Array {
+    return this.framePool.pop() ?? new Uint8Array(EVENT_FRAME_SIZE);
+  }
+
+  private releaseFrame(f: Uint8Array): void {
+    this.framePool.push(f);
+  }
+
+  /**
+   * Drain the engine event ring into the pending queue, copying frame bytes
+   * because the ring's read buffer is shared and gets overwritten.
+   */
+  private drainRing(): void {
     while (this.eventRing.pop(this.eventFrame)) {
-      // Only route per-instance event types by targetId. Other types
-      // (Transport, Tempo) are ignored here for Phase 3.
-      const ev = decodeEvent(this.eventFrame);
-      if (ev.type === EVT_NOTE_ON || ev.type === EVT_NOTE_OFF || ev.type === EVT_PARAM_SET) {
-        this.chain.queueEventFrame(ev.targetId, this.eventFrame);
-      }
+      if (this.pending.length >= MAX_PENDING_EVENTS) break;
+      const sampleTime = this.eventFrameView.getUint32(4, true);
+      const f = this.acquireFrame();
+      f.set(this.eventFrame);
+      this.pending.push({ sampleTime, frame: f });
     }
+  }
+
+  /**
+   * Dispatch every event whose sampleTime falls in the current block. Frames
+   * scheduled in the past (sampleTime ≤ blockStart) fire at frameOffset 0;
+   * frames in the future stay pending. Frames with sampleTime === 0 act as
+   * "fire immediately" and dispatch on the next process() call.
+   */
+  private dispatchPending(blockStart: number, blockEnd: number): void {
+    if (this.pending.length === 0) return;
+    this.pending.sort((a, b) => a.sampleTime - b.sampleTime);
+
+    let i = 0;
+    while (i < this.pending.length) {
+      const ev = this.pending[i]!;
+      if (ev.sampleTime >= blockEnd && ev.sampleTime !== 0) break;
+      const frameOffset = ev.sampleTime <= blockStart
+        ? 0
+        : ev.sampleTime - blockStart;
+      rewriteFrameOffset(ev.frame, frameOffset);
+      const targetId = new DataView(ev.frame.buffer, ev.frame.byteOffset, EVENT_FRAME_SIZE)
+        .getUint32(8, true);
+      this.router.queueEvent(targetId, ev.frame);
+      this.releaseFrame(ev.frame);
+      i++;
+    }
+    if (i > 0) this.pending.splice(0, i);
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
@@ -150,40 +238,50 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     const left = output[0];
     const right = output[1];
     const blockSize = left.length;
+    const blockStart = this.sampleCounter;
+    const blockEnd = blockStart + blockSize;
 
-    this.drainEventsIntoChain();
-    this.chain.processBlock(blockSize, this.outBus.subarray(0, blockSize * 2));
+    this.drainRing();
+    this.dispatchPending(blockStart, blockEnd);
 
-    // Deinterleave the stereo bus into the worklet's separate channels and
-    // compute peak / RMS as we go.
-    let peak = 0;
-    let sumSq = 0;
+    const outStereo = this.outBus.subarray(0, blockSize * 2);
+    const meters = this.router.processBlock(blockSize, outStereo);
+
+    // De-interleave the stereo bus into the worklet's channels.
     for (let i = 0; i < blockSize; i++) {
-      const l = this.outBus[i * 2]!;
-      const r = this.outBus[i * 2 + 1]!;
-      left[i] = l;
-      if (right) right[i] = r;
-      const mono = (l + r) * 0.5;
-      const a = mono < 0 ? -mono : mono;
-      if (a > peak) peak = a;
-      sumSq += mono * mono;
+      left[i] = outStereo[i * 2]!;
+      if (right) right[i] = outStereo[i * 2 + 1]!;
     }
-    const rms = Math.sqrt(sumSq / blockSize);
 
-    // Publish master meter (channel 0).
-    this.meterView.setUint32(0, 0, true);
-    this.meterView.setFloat32(4, peak, true);
-    this.meterView.setFloat32(8, rms, true);
-    this.meterView.setUint32(12, this.blockCounter, true);
-    this.meterRing.push(this.meterFrame);
+    // Publish per-channel meters. Channel id is hashed to a u32 so the meter
+    // frame layout stays a flat 16 bytes.
+    for (let i = 0; i < meters.length; i++) {
+      const m = meters[i]!;
+      this.meterView.setUint32(0, fnv1a(m.channelId), true);
+      this.meterView.setFloat32(4, m.peak, true);
+      this.meterView.setFloat32(8, m.rms, true);
+      this.meterView.setUint32(12, this.blockCounter, true);
+      this.meterRing.push(this.meterFrame);
+    }
 
-    // Advance counters and publish telemetry (sample-count low 32 bits).
     this.sampleCounter += blockSize;
     Atomics.store(this.telemetry, 0, this.sampleCounter >>> 0);
     this.blockCounter++;
-
     return true;
   }
+}
+
+/**
+ * FNV-1a 32-bit hash. Mirrors the main-thread helper in EngineClient so the
+ * two sides resolve channel ids consistently.
+ */
+function fnv1a(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
 }
 
 registerProcessor('noa-engine', NoaEngineProcessor);

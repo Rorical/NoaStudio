@@ -1,4 +1,5 @@
 import type { PluginManifest } from './PluginManifest';
+import type { RoutingConfig } from './MixerRouter';
 
 /**
  * Minimum surface we need from a MessagePort-shaped object. `AudioWorkletNode.port`
@@ -12,7 +13,15 @@ export interface MessagePortLike {
 export interface LoadPluginArgs {
   /** Stable string id; matches the coordinator's PluginInstance.id. */
   instanceId: string;
-  /** Slot index inside the worklet's signal chain. */
+  /**
+   * Globally-unique numeric id that flows through EngineEvent.targetId so the
+   * worklet's MixerRouter can resolve which (chainId, slot) to dispatch to.
+   * Minted by EngineClient on each loadPlugin call.
+   */
+  numericId: number;
+  /** Named chain this instance lives in (e.g. 't1' for the t1-generator chain). */
+  chainId: string;
+  /** Slot index inside the named chain. */
   slot: number;
   /**
    * Raw WASM bytes. The worklet compiles synchronously via
@@ -27,6 +36,8 @@ export interface LoadPluginArgs {
 
 export interface LoadPluginResult {
   instanceId: string;
+  numericId: number;
+  chainId: string;
   slot: number;
   paramRingSab: SharedArrayBuffer;
   notifyRingSab: SharedArrayBuffer;
@@ -38,7 +49,7 @@ interface PendingLoad {
 }
 
 type WorkletOutbound =
-  | { type: 'INSTANCE_READY'; instanceId: string; slot: number; paramRingSab: SharedArrayBuffer; notifyRingSab: SharedArrayBuffer }
+  | { type: 'INSTANCE_READY'; instanceId: string; numericId: number; chainId: string; slot: number; paramRingSab: SharedArrayBuffer; notifyRingSab: SharedArrayBuffer }
   | { type: 'INSTANCE_ERROR'; instanceId: string; error: string }
   | { type: string; [k: string]: unknown };
 
@@ -75,6 +86,8 @@ export class WorkletProtocol {
       this.port.postMessage({
         type: 'INSTANTIATE_PLUGIN',
         instanceId: args.instanceId,
+        numericId: args.numericId,
+        chainId: args.chainId,
         slot: args.slot,
         wasm: args.wasm,
         manifest: args.manifest,
@@ -87,19 +100,35 @@ export class WorkletProtocol {
    * Fire-and-forget removal. The worklet handles unknown slots as a no-op,
    * so callers don't need to coordinate with an INSTANCE_READY for the unload.
    */
-  unloadInstance(slot: number): void {
+  unloadInstance(args: { numericId: number; chainId: string; slot: number }): void {
     if (this.disposed) return;
-    this.port.postMessage({ type: 'DESTROY_INSTANCE', slot });
+    this.port.postMessage({
+      type: 'DESTROY_INSTANCE',
+      numericId: args.numericId,
+      chainId: args.chainId,
+      slot: args.slot,
+    });
   }
 
   /**
-   * Apply a prepared preset's state bytes to the instance at `slot`. The
-   * worklet calls `noa_set_state` between blocks — fast per the ABI v1.1
+   * Apply a prepared preset's state bytes to the instance at `(chainId, slot)`.
+   * The worklet calls `noa_set_state` between blocks — fast per the ABI v1.1
    * contract that set_state is O(memcpy + atomic indices).
    */
-  applyPresetState(slot: number, stateBytes: Uint8Array): void {
+  applyPresetState(args: { chainId: string; slot: number; stateBytes: Uint8Array }): void {
     if (this.disposed) return;
-    this.port.postMessage({ type: 'APPLY_PRESET_STATE', slot, stateBytes });
+    this.port.postMessage({
+      type: 'APPLY_PRESET_STATE',
+      chainId: args.chainId,
+      slot: args.slot,
+      stateBytes: args.stateBytes,
+    });
+  }
+
+  /** Update the routing topology used by the worklet's MixerRouter. */
+  updateRouting(config: RoutingConfig): void {
+    if (this.disposed) return;
+    this.port.postMessage({ type: 'UPDATE_ROUTING', config });
   }
 
   /** Reject every outstanding loadPlugin promise (used on EngineClient.dispose). */
@@ -119,6 +148,8 @@ export class WorkletProtocol {
         this.pending.delete(msg.instanceId as string);
         p.resolve({
           instanceId: msg.instanceId as string,
+          numericId: msg.numericId as number,
+          chainId: msg.chainId as string,
           slot: msg.slot as number,
           paramRingSab: msg.paramRingSab as SharedArrayBuffer,
           notifyRingSab: msg.notifyRingSab as SharedArrayBuffer,

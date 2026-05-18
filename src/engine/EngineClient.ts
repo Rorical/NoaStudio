@@ -8,10 +8,25 @@ import {
 } from './EngineEvent';
 import {
   WorkletProtocol,
-  type LoadPluginArgs, type LoadPluginResult,
+  type LoadPluginResult,
 } from './WorkletProtocol';
 import { PluginWorker, type PreparedPreset } from './PluginWorker';
 import type { PluginManifest } from './PluginManifest';
+import type { RoutingConfig } from './MixerRouter';
+
+/**
+ * EngineClient's loadPlugin args. Smaller than the WorkletProtocol's because
+ * the numeric event-target id is minted inside EngineClient — callers don't
+ * have to thread one through.
+ */
+export interface EngineLoadPluginArgs {
+  instanceId: string;
+  chainId: string;
+  slot: number;
+  wasm: Uint8Array;
+  manifest: PluginManifest;
+  initialParams?: number[];
+}
 
 const METER_FRAME_SIZE = 16;
 const EVENT_RING_SLOTS = 1024;
@@ -20,6 +35,8 @@ const METER_RING_SLOTS = 256;
 const WORKER_MAX_BLOCK_SIZE = 128;
 
 interface InstanceMeta {
+  numericId: number;
+  chainId: string;
   slot: number;
   worker: Worker;
   pluginWorker: PluginWorker;
@@ -40,6 +57,8 @@ export class EngineClient {
   private meterRing: RingBuffer | null = null;
   private telemetry: Uint32Array | null = null;
   private readonly instances = new Map<string, InstanceMeta>();
+  /** Monotonic counter for EngineEvent.targetId. */
+  private nextNumericId = 1;
   private readonly eventFrame = new Uint8Array(EVENT_FRAME_SIZE);
   private readonly meterFrame = new Uint8Array(METER_FRAME_SIZE);
   private readonly meterView = new DataView(this.meterFrame.buffer);
@@ -136,9 +155,10 @@ export class EngineClient {
    * per-instance plugin worker. Resolves with the per-instance SAB rings
    * (returned by the worklet) once both sides have signalled ready.
    */
-  async loadPlugin(args: LoadPluginArgs): Promise<LoadPluginResult> {
+  async loadPlugin(args: EngineLoadPluginArgs): Promise<LoadPluginResult> {
     if (!this.protocol) throw new Error('EngineClient not initialized');
-    const result = await this.protocol.loadPlugin(args);
+    const numericId = this.nextNumericId++;
+    const result = await this.protocol.loadPlugin({ ...args, numericId });
 
     // Spawn the non-RT worker. Vite resolves the URL at build time; in dev
     // mode it's served from the source tree.
@@ -174,16 +194,32 @@ export class EngineClient {
       pluginWorker.dispose();
       worker.terminate();
       // Worklet side is already up; tear it down to keep the chain consistent.
-      this.protocol.unloadInstance(result.slot);
+      this.protocol.unloadInstance({
+        numericId: result.numericId,
+        chainId: result.chainId,
+        slot: result.slot,
+      });
       throw err;
     }
 
     this.instances.set(args.instanceId, {
+      numericId: result.numericId,
+      chainId: result.chainId,
       slot: result.slot,
       worker,
       pluginWorker,
     });
     return result;
+  }
+
+  /** Update the worklet's routing topology. Fire-and-forget. */
+  updateRouting(config: RoutingConfig): void {
+    this.protocol?.updateRouting(config);
+  }
+
+  /** Look up the engine-side numeric id used as `targetId` for events. */
+  getNumericId(instanceId: string): number | undefined {
+    return this.instances.get(instanceId)?.numericId;
   }
 
   /**
@@ -195,7 +231,11 @@ export class EngineClient {
     if (!meta) return;
     meta.pluginWorker.dispose();
     meta.worker.terminate();
-    this.protocol?.unloadInstance(meta.slot);
+    this.protocol?.unloadInstance({
+      numericId: meta.numericId,
+      chainId: meta.chainId,
+      slot: meta.slot,
+    });
     this.instances.delete(instanceId);
   }
 
@@ -217,7 +257,11 @@ export class EngineClient {
   activatePreset(args: { instanceId: string; preparedStateBytes: Uint8Array }): void {
     const meta = this.instances.get(args.instanceId);
     if (!meta) throw new Error(`EngineClient.activatePreset: unknown instance '${args.instanceId}'`);
-    this.protocol?.applyPresetState(meta.slot, args.preparedStateBytes);
+    this.protocol?.applyPresetState({
+      chainId: meta.chainId,
+      slot: meta.slot,
+      stateBytes: args.preparedStateBytes,
+    });
   }
 
   /** Release a prepared preset handle. The worker frees its slot. */
@@ -264,7 +308,7 @@ export class EngineClient {
   }
 }
 
-// Re-export the protocol's public types so callers can import everything from `./engine`.
-export type { LoadPluginArgs, LoadPluginResult };
+export type { LoadPluginResult };
 export type { PreparedPreset };
 export type { PluginManifest };
+export type { RoutingConfig };
