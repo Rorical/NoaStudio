@@ -2,10 +2,15 @@ import { allocRingBuffer, RingBuffer } from './RingBuffer';
 import {
   EVENT_FRAME_SIZE,
   encodeEvent,
-  EVT_NOTE_ON, EVT_NOTE_OFF, EVT_TEMPO, EVT_TRANSPORT,
+  EVT_NOTE_ON, EVT_NOTE_OFF, EVT_PARAM_SET, EVT_TEMPO, EVT_TRANSPORT,
   TRANSPORT_PLAY, TRANSPORT_STOP,
   type EngineEvent,
 } from './EngineEvent';
+import {
+  WorkletProtocol,
+  type LoadPluginArgs, type LoadPluginResult,
+} from './WorkletProtocol';
+import type { PluginManifest } from './PluginManifest';
 
 const METER_FRAME_SIZE = 16;
 const EVENT_RING_SLOTS = 1024;
@@ -21,6 +26,7 @@ export interface MeterReading {
 export class EngineClient {
   private ctx: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
+  private protocol: WorkletProtocol | null = null;
   private eventRing: RingBuffer | null = null;
   private meterRing: RingBuffer | null = null;
   private telemetry: Uint32Array | null = null;
@@ -56,6 +62,7 @@ export class EngineClient {
       },
     });
     this.node.connect(this.ctx.destination);
+    this.protocol = new WorkletProtocol(this.node.port);
   }
 
   /** AudioContext starts suspended in most browsers; call from a user gesture. */
@@ -74,15 +81,27 @@ export class EngineClient {
     return this.eventRing.push(this.eventFrame);
   }
 
-  noteOn(note: number, velocity = 100): void {
+  /** Route a NoteOn to the instance occupying the given slot (default slot 0 = generator). */
+  noteOn(note: number, velocity = 100, slot = 0): void {
     this.sendEvent({
-      type: EVT_NOTE_ON, frameOffset: 0, targetId: 0, note, velocity, channel: 0,
+      type: EVT_NOTE_ON, frameOffset: 0, targetId: slot, note, velocity, channel: 0,
     });
   }
 
-  noteOff(note: number): void {
+  noteOff(note: number, slot = 0): void {
     this.sendEvent({
-      type: EVT_NOTE_OFF, frameOffset: 0, targetId: 0, note, channel: 0,
+      type: EVT_NOTE_OFF, frameOffset: 0, targetId: slot, note, channel: 0,
+    });
+  }
+
+  /**
+   * Push a ParamSet event to the instance at `slot`. Block-rate; use the
+   * per-instance param ring (handed back from `loadPlugin`) for sample-accurate
+   * UI knob updates.
+   */
+  setParam(slot: number, paramIndex: number, value: number): void {
+    this.sendEvent({
+      type: EVT_PARAM_SET, frameOffset: 0, targetId: slot, paramIndex, value,
     });
   }
 
@@ -100,6 +119,20 @@ export class EngineClient {
 
   setTempo(bpm: number): void {
     this.sendEvent({ type: EVT_TEMPO, frameOffset: 0, bpm });
+  }
+
+  /**
+   * Instantiate a plugin inside the worklet at the given slot. Resolves with the
+   * per-instance SAB rings when the worklet posts INSTANCE_READY.
+   */
+  loadPlugin(args: LoadPluginArgs): Promise<LoadPluginResult> {
+    if (!this.protocol) throw new Error('EngineClient not initialized');
+    return this.protocol.loadPlugin(args);
+  }
+
+  /** Fire-and-forget removal. The worklet treats unknown slots as a no-op. */
+  unloadInstance(slot: number): void {
+    this.protocol?.unloadInstance(slot);
   }
 
   /** Drains every queued meter frame into `out`. */
@@ -122,6 +155,8 @@ export class EngineClient {
   }
 
   async dispose(): Promise<void> {
+    this.protocol?.dispose();
+    this.protocol = null;
     this.node?.disconnect();
     this.node = null;
     await this.ctx?.close();
@@ -131,3 +166,7 @@ export class EngineClient {
     this.telemetry = null;
   }
 }
+
+// Re-export the protocol's public types so callers can import everything from `./engine`.
+export type { LoadPluginArgs, LoadPluginResult };
+export type { PluginManifest };
