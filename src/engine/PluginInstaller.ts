@@ -96,6 +96,21 @@ export class PluginInstaller {
     this.deps.dispatch({ type: 'INSTALL_PLUGIN', entry: record });
     return record;
   }
+
+  /**
+   * Remove every version of a plugin from OPFS and dispatch UNINSTALL_PLUGIN.
+   * No-op if the plugin isn't installed; dispatches anyway so coordinator
+   * state stays in sync if it had a stale entry.
+   */
+  async uninstall(pluginId: string): Promise<void> {
+    const installed = await this.deps.store.list();
+    for (const entry of installed) {
+      if (entry.pluginId === pluginId) {
+        await this.deps.store.remove(entry.pluginId, entry.version);
+      }
+    }
+    this.deps.dispatch({ type: 'UNINSTALL_PLUGIN', pluginId });
+  }
 }
 
 function parseSri(hash: string): { algo: SriAlgo; b64: string } | null {

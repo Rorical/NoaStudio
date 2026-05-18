@@ -76,12 +76,9 @@ export const DEMO_CHANNELS = [
   { id:'mR', name:'Verb Bus',color: null, vol: 0.50, pan: 0, mute:false, solo:false, sends:['m0'], effects:[]},
 ];
 
-// Phase 3 ships two real plugins. The Browser shows what's loadable —
-// the broader plugin catalog returns when more are written.
-export const PLUGINS = [
-  { name:'Sine', kind:'gen', tag:'8-voice sine', pluginId:'com.noa.sine' },
-  { name:'Gain', kind:'fx',  tag:'Linear gain',  pluginId:'com.noa.gain' },
-];
+// Phase 5: the Browser's plugin list comes from the coordinator's
+// `installedPlugins` (seeded with the two built-ins in projectModel.ts).
+// The static catalog that used to live here is gone.
 
 export const FILES = [
   { name:'Projects', kind:'folder', children:[

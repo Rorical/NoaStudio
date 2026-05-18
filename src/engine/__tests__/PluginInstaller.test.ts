@@ -127,6 +127,37 @@ describe('PluginInstaller.installFromUrl — SRI', () => {
   });
 });
 
+describe('PluginInstaller.uninstall', () => {
+  it('removes the plugin from OPFS and dispatches UNINSTALL_PLUGIN', async () => {
+    const store = makeStore();
+    const dispatched: Action[] = [];
+    const installer = new PluginInstaller({
+      fetch: stubFetch(buildZip({
+        'plugin.json': manifestJson(),
+        'plugin.wasm': MIN_WASM,
+      })),
+      store,
+      dispatch: (a) => dispatched.push(a),
+    });
+    await installer.installFromUrl('https://example.test/fuzz.noaplugin');
+    dispatched.length = 0;
+    await installer.uninstall('com.example.fuzz');
+    expect(await store.readFile('com.example.fuzz', '1.0.0', 'plugin.wasm')).toBeNull();
+    expect(dispatched).toEqual([{ type: 'UNINSTALL_PLUGIN', pluginId: 'com.example.fuzz' }]);
+  });
+
+  it('still dispatches UNINSTALL_PLUGIN for an unknown plugin', async () => {
+    const dispatched: Action[] = [];
+    const installer = new PluginInstaller({
+      fetch: stubFetch(new Uint8Array(0)),
+      store: makeStore(),
+      dispatch: (a) => dispatched.push(a),
+    });
+    await installer.uninstall('com.example.nope');
+    expect(dispatched).toEqual([{ type: 'UNINSTALL_PLUGIN', pluginId: 'com.example.nope' }]);
+  });
+});
+
 describe('PluginInstaller.installFromUrl — validation', () => {
   it('rejects a ZIP missing plugin.json', async () => {
     const zip = buildZip({ 'plugin.wasm': MIN_WASM });

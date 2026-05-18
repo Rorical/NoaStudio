@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Toolbar from './components/Toolbar.jsx';
 import Browser from './components/Browser.jsx';
 import Playlist from './components/Playlist.jsx';
@@ -6,15 +6,12 @@ import PianoRoll from './components/PianoRoll.jsx';
 import Mixer from './components/Mixer.jsx';
 import TweaksPanel from './components/TweaksPanel.jsx';
 import PluginWindow from './components/PluginWindow.jsx';
-import { TRACK_COLORS, PLUGINS, FILES } from './data.js';
+import { TRACK_COLORS, FILES } from './data.js';
 import { useEngine } from './engine/useEngine.js';
 import { bootBuiltinRegistry } from './engine/bootBuiltins.js';
+import { PluginInstaller } from './engine/PluginInstaller.ts';
+import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
-
-// Drag-source catalog for the Browser pane. Keyed by pluginId.
-const DRAG_CATALOG = new Map(
-  PLUGINS.filter((p) => p.pluginId).map((p) => [p.pluginId, p]),
-);
 
 const selectTracks = (p) => p.tracks;
 const selectClips = (p) => p.clips;
@@ -22,6 +19,7 @@ const selectChannels = (p) => p.channels;
 const selectBpm = (p) => p.bpm;
 const selectLoop = (p) => p.loop;
 const selectMetronome = (p) => p.metronome;
+const selectInstalledPlugins = (p) => p.installedPlugins;
 
 export default function App() {
   const [theme, setTheme] = useState('dark');
@@ -40,6 +38,7 @@ export default function App() {
   const bpm = useProject(selectBpm);
   const loop = useProject(selectLoop);
   const metronome = useProject(selectMetronome);
+  const installedPlugins = useProject(selectInstalledPlugins);
   const [time, setTime] = useState(0);
   const [levels, setLevels] = useState({});
 
@@ -52,10 +51,48 @@ export default function App() {
   // Compiled plugin registry; ref-only because consumers read it imperatively
   // when opening a window (the catalog state below is what triggers re-renders).
   const registryRef = useRef(null);
-  // Display catalog: pluginId → { name, kind, tag, hasUi }. Starts with the
-  // Browser's drag entries, gets enriched once the engine boot loads each
-  // plugin's manifest (which is when hasUi becomes known).
-  const [pluginCatalog, setPluginCatalog] = useState(DRAG_CATALOG);
+  // Bumped once the engine registry boots so the derived `pluginCatalog`
+  // memo re-runs with `hasUi` filled in.
+  const [registryVersion, setRegistryVersion] = useState(0);
+
+  /**
+   * Display catalog: pluginId → { name, kind, tag, hasUi, version }.
+   * Sourced from the coordinator's installed plugins (so reinstalls /
+   * uninstalls flow through immediately) and enriched with the engine
+   * registry's UI info once that boots.
+   */
+  const pluginCatalog = useMemo(() => {
+    const m = new Map();
+    for (const p of installedPlugins) {
+      m.set(p.pluginId, {
+        pluginId: p.pluginId,
+        name: p.name,
+        kind: p.kind,
+        tag: '',
+        version: p.version,
+        hasUi: false,
+      });
+    }
+    const registry = registryRef.current;
+    if (registry) {
+      for (const e of registry.list()) {
+        const prev = m.get(e.manifest.id);
+        if (prev) m.set(e.manifest.id, { ...prev, hasUi: !!e.manifest.ui });
+      }
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installedPlugins, registryVersion]);
+
+  const browserPlugins = useMemo(
+    () => installedPlugins.map((p) => ({
+      pluginId: p.pluginId,
+      name: p.name,
+      kind: p.kind,
+      tag: '',
+    })),
+    [installedPlugins],
+  );
   // UI-ephemeral plugin windows. Each entry: { instanceId, z }. Not persisted.
   const [openWindows, setOpenWindows] = useState([]);
   const nextZRef = useRef(100);
@@ -73,6 +110,41 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Plugin installer for the Browser's "Install from URL" flow. Constructed
+  // once we have both an OPFS handle and a dispatch reference.
+  const [installer, setInstaller] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const store = await openOpfsPluginStore();
+        if (cancelled || !store) return;
+        setInstaller(new PluginInstaller({
+          fetch: window.fetch.bind(window),
+          store,
+          dispatch,
+        }));
+      } catch (err) {
+        console.warn('[noa] installer init failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dispatch]);
+
+  const handleInstallFromUrl = useCallback(async (url) => {
+    if (!installer) throw new Error('Installer not ready');
+    await installer.installFromUrl(url);
+  }, [installer]);
+
+  const handleUninstallPlugin = useCallback(async (pluginId) => {
+    if (!installer) return;
+    try {
+      await installer.uninstall(pluginId);
+    } catch (err) {
+      console.error('[noa] uninstall failed:', err);
+    }
+  }, [installer]);
 
   useEffect(() => {
     if (engineReady) engineRef.current?.setTempo(bpm);
@@ -100,20 +172,8 @@ export default function App() {
         if (cancelled) return;
         registryRef.current = registry;
 
-        // Build the runtime plugin catalog from the registry (enriches the
-        // static drag-source entries with kind + hasUi info).
-        const catalog = new Map(DRAG_CATALOG);
-        for (const entry of registry.list()) {
-          const prev = catalog.get(entry.manifest.id) ?? {};
-          catalog.set(entry.manifest.id, {
-            ...prev,
-            name: entry.manifest.name,
-            kind: entry.manifest.kind,
-            tag: prev.tag ?? '',
-            hasUi: !!entry.manifest.ui,
-          });
-        }
-        if (!cancelled) setPluginCatalog(catalog);
+        // Trigger the `pluginCatalog` memo to re-derive with hasUi populated.
+        if (!cancelled) setRegistryVersion((v) => v + 1);
 
         const map = new Map();
         const rings = new Map();
@@ -436,7 +496,14 @@ export default function App() {
       />
 
       <main className={`workspace ${browserOpen ? 'with-browser' : 'no-browser'} view-${view}`}>
-        {browserOpen && <Browser files={FILES} plugins={PLUGINS} />}
+        {browserOpen && (
+          <Browser
+            files={FILES}
+            plugins={browserPlugins}
+            onInstallFromUrl={installer ? handleInstallFromUrl : null}
+            onUninstall={installer ? handleUninstallPlugin : null}
+          />
+        )}
 
         {view === 'tracks' ? (
           <div className="center-split">

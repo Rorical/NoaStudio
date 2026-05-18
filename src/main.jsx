@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import { registerSW } from './sw/registerSW.js';
-import { OpfsPluginStore } from './sw/OpfsPluginStore';
+import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { seedBuiltins } from './sw/seedBuiltins.js';
 import './styles/styles.css';
 import './styles/styles-components.css';
@@ -17,11 +17,9 @@ window.__noa.swReady = registerSW();
 // registration since the OPFS layer is independent; consumers that need to
 // fetch via the SW should await both `swReady` and `seedReady`.
 window.__noa.seedReady = (async () => {
-  if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return;
   try {
-    const root = await navigator.storage.getDirectory();
-    const pluginsRoot = await root.getDirectoryHandle('plugins', { create: true });
-    await seedBuiltins(new OpfsPluginStore(pluginsRoot));
+    const store = await openOpfsPluginStore();
+    if (store) await seedBuiltins(store);
   } catch (err) {
     console.warn('[noa] OPFS seed failed:', err);
   }
