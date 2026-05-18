@@ -114,6 +114,14 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     // Calling it inside onmessage is safe — the worklet thread is
     // single-threaded so process() can't run concurrently.
     inst.setState(m.stateBytes);
+    // Push one ParamChanged frame per declared param so the open plugin UI
+    // animates its knobs to match the new state. Cheap (<= manifest.params
+    // .length writes) and there's no race because onmessage and process()
+    // serialize on the worklet thread.
+    const paramCount = inst.manifest.params.length;
+    for (let i = 0; i < paramCount; i++) {
+      inst.pushNotifyParamChanged(i, inst.readParam(i), this.blockCounter);
+    }
   }
 
   private drainEventsIntoChain(): void {
