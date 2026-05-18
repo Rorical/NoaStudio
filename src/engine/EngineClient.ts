@@ -10,11 +10,20 @@ import {
   WorkletProtocol,
   type LoadPluginArgs, type LoadPluginResult,
 } from './WorkletProtocol';
+import { PluginWorker, type PreparedPreset } from './PluginWorker';
 import type { PluginManifest } from './PluginManifest';
 
 const METER_FRAME_SIZE = 16;
 const EVENT_RING_SLOTS = 1024;
 const METER_RING_SLOTS = 256;
+/** Per-instance worker matches the worklet's render quantum so allocations align. */
+const WORKER_MAX_BLOCK_SIZE = 128;
+
+interface InstanceMeta {
+  slot: number;
+  worker: Worker;
+  pluginWorker: PluginWorker;
+}
 
 export interface MeterReading {
   channelId: number;
@@ -30,6 +39,7 @@ export class EngineClient {
   private eventRing: RingBuffer | null = null;
   private meterRing: RingBuffer | null = null;
   private telemetry: Uint32Array | null = null;
+  private readonly instances = new Map<string, InstanceMeta>();
   private readonly eventFrame = new Uint8Array(EVENT_FRAME_SIZE);
   private readonly meterFrame = new Uint8Array(METER_FRAME_SIZE);
   private readonly meterView = new DataView(this.meterFrame.buffer);
@@ -122,17 +132,84 @@ export class EngineClient {
   }
 
   /**
-   * Instantiate a plugin inside the worklet at the given slot. Resolves with the
-   * per-instance SAB rings when the worklet posts INSTANCE_READY.
+   * Instantiate a plugin inside the worklet at the given slot AND spawn a
+   * per-instance plugin worker. Resolves with the per-instance SAB rings
+   * (returned by the worklet) once both sides have signalled ready.
    */
-  loadPlugin(args: LoadPluginArgs): Promise<LoadPluginResult> {
+  async loadPlugin(args: LoadPluginArgs): Promise<LoadPluginResult> {
     if (!this.protocol) throw new Error('EngineClient not initialized');
-    return this.protocol.loadPlugin(args);
+    const result = await this.protocol.loadPlugin(args);
+
+    // Spawn the non-RT worker. Vite resolves the URL at build time; in dev
+    // mode it's served from the source tree.
+    const worker = new Worker(
+      new URL('./plugin-host.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    const pluginWorker = new PluginWorker(worker);
+    try {
+      await pluginWorker.spawn({
+        instanceId: args.instanceId,
+        module: args.module,
+        manifest: args.manifest,
+        sampleRate: this.sampleRate,
+        maxBlockSize: WORKER_MAX_BLOCK_SIZE,
+      });
+    } catch (err) {
+      pluginWorker.dispose();
+      worker.terminate();
+      // Worklet side is already up; tear it down to keep the chain consistent.
+      this.protocol.unloadInstance(result.slot);
+      throw err;
+    }
+
+    this.instances.set(args.instanceId, {
+      slot: result.slot,
+      worker,
+      pluginWorker,
+    });
+    return result;
   }
 
-  /** Fire-and-forget removal. The worklet treats unknown slots as a no-op. */
-  unloadInstance(slot: number): void {
-    this.protocol?.unloadInstance(slot);
+  /**
+   * Fully unload a plugin instance: tear down its worker, drop the worklet
+   * slot. Unknown ids are no-ops.
+   */
+  unloadInstance(instanceId: string): void {
+    const meta = this.instances.get(instanceId);
+    if (!meta) return;
+    meta.pluginWorker.dispose();
+    meta.worker.terminate();
+    this.protocol?.unloadInstance(meta.slot);
+    this.instances.delete(instanceId);
+  }
+
+  /**
+   * Prepare a preset on the per-instance worker (slow path). Resolves with
+   * a `{handle, stateBytes}` pair. Pass the stateBytes to `activatePreset`
+   * to swap the worklet's instance to the new state without glitching audio.
+   */
+  preparePreset(args: { instanceId: string; bytes: Uint8Array }): Promise<PreparedPreset> {
+    const meta = this.instances.get(args.instanceId);
+    if (!meta) return Promise.reject(new Error(`EngineClient.preparePreset: unknown instance '${args.instanceId}'`));
+    return meta.pluginWorker.preparePreset(args.bytes);
+  }
+
+  /**
+   * Apply a prepared preset's state to the worklet's instance. Fast — runs
+   * inside the worklet's onmessage handler.
+   */
+  activatePreset(args: { instanceId: string; preparedStateBytes: Uint8Array }): void {
+    const meta = this.instances.get(args.instanceId);
+    if (!meta) throw new Error(`EngineClient.activatePreset: unknown instance '${args.instanceId}'`);
+    this.protocol?.applyPresetState(meta.slot, args.preparedStateBytes);
+  }
+
+  /** Release a prepared preset handle. The worker frees its slot. */
+  freePreset(args: { instanceId: string; handle: number }): void {
+    const meta = this.instances.get(args.instanceId);
+    if (!meta) return;
+    meta.pluginWorker.freePreset(args.handle);
   }
 
   /** Drains every queued meter frame into `out`. */
@@ -155,6 +232,11 @@ export class EngineClient {
   }
 
   async dispose(): Promise<void> {
+    for (const meta of this.instances.values()) {
+      meta.pluginWorker.dispose();
+      meta.worker.terminate();
+    }
+    this.instances.clear();
     this.protocol?.dispose();
     this.protocol = null;
     this.node?.disconnect();
@@ -169,4 +251,5 @@ export class EngineClient {
 
 // Re-export the protocol's public types so callers can import everything from `./engine`.
 export type { LoadPluginArgs, LoadPluginResult };
+export type { PreparedPreset };
 export type { PluginManifest };

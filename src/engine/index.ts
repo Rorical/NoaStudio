@@ -3,6 +3,7 @@ export {
   type MeterReading,
   type LoadPluginArgs,
   type LoadPluginResult,
+  type PreparedPreset,
 } from './EngineClient';
 export {
   EVT_NOTE_ON, EVT_NOTE_OFF, EVT_PARAM_SET, EVT_TRANSPORT, EVT_TEMPO,
