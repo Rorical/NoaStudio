@@ -7,6 +7,7 @@ export default defineConfig({
     include: [
       'src/engine/**/__tests__/**/*.test.ts',
       'src/coordinator/**/__tests__/**/*.test.ts',
+      'src/sw/**/__tests__/**/*.test.ts',
     ],
     passWithNoTests: true,
   },
