@@ -6,7 +6,10 @@ const PR_BEAT_W = 56;
 const PR_OCTAVES = 4;
 const PR_KEYS = PR_OCTAVES * 12;
 
-export default function PianoRoll({ clip, track, color, onClose, onUpdateNotes, onUpdateLength, time }) {
+export default function PianoRoll({ clip, track, color, onClose, onUpdateNotes, onUpdateLength, time, pluginCatalog }) {
+  const generatorLabel = track.generator
+    ? (pluginCatalog?.get?.(track.generator.pluginId)?.name ?? track.generator.pluginId)
+    : (track.type === 'audio' ? 'Audio' : 'No plugin');
   const [notes, setNotes] = useState(() =>
     (clip?.pattern?.notes || []).map((n, i) => ({
       id: 'n' + i, beat: n[0], pitch: n[1], length: n[2], velocity: 0.8,
@@ -142,7 +145,7 @@ export default function PianoRoll({ clip, track, color, onClose, onUpdateNotes, 
           <Icon name="piano" size={16} />
           <span className="pr-clip-dot" style={{ background: color }} />
           <span className="pr-clip-name">{clip.label}</span>
-          <span className="pr-track-name mono">{track.name} · {track.generator || 'Audio'}</span>
+          <span className="pr-track-name mono">{track.name} · {generatorLabel}</span>
         </div>
         <div className="pr-tools">
           <div className="seg">

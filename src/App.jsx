@@ -445,6 +445,7 @@ export default function App() {
                 onClose={() => setPianoOpen(false)}
                 onUpdateNotes={updateClipNotes}
                 onUpdateLength={updateClipLength}
+                pluginCatalog={pluginCatalog}
               />
             )}
           </div>
