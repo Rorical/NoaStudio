@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/` for smoke-testing.
 
-- `npm test` — Vitest unit tests (Node environment, no browser). All 182 tests across 17 suites (engine + coordinator + built-in plugins) should pass.
+- `npm test` — Vitest unit tests (Node environment, no browser). All 228 tests across 20 suites (engine + coordinator + sw + built-in plugins) should pass.
 - `npm run build:plugins` — Optional. Rebuilds the AssemblyScript-authored plugins in `src/engine/__tests__/fixtures/` and `src/builtin-plugins/`. The compiled `.wasm` artifacts are committed; this script is only needed after editing a plugin's AS source.
 - `npm run typecheck` — TypeScript type check (`tsc --noEmit`).
 
@@ -16,13 +16,13 @@ For UI changes, run `npm run dev` and click through.
 
 ## Architecture
 
-Noa Studio is a browser-based DAW under active construction. As of Phase 4, audio is produced by **WASM plugins** loaded through the Noa Plugin ABI v1 (with v1.1 preset-hot-swap extensions, see `docs/plugin-abi-v1.md`). Two built-in plugins ship in `src/builtin-plugins/`: `com.noa.sine` (8-voice polyphonic sine generator with a 3-preset bank demonstrating glitch-free hot-swap) and `com.noa.gain` (linear gain insert). Each plugin's RT processing runs in the audio worklet; a per-instance JS `Worker` handles slow non-RT work like preset compilation. Each plugin can ship a floating HTML UI hosted in a sandboxed iframe. Project state (tracks, clips, channels, BPM, loop, metronome, plugin instances) lives in a `SharedWorker` in `src/coordinator/`, persisted to OPFS. Per-channel mixer meters are still simulated; multi-track audio routing arrives in Phase 6 — see `docs/superpowers/plans/2026-05-17-noa-daw-roadmap.md`.
+Noa Studio is a browser-based DAW under active construction. As of Phase 5, audio is produced by **WASM plugins** loaded through the Noa Plugin ABI v1 (with v1.1 preset-hot-swap extensions, see `docs/plugin-abi-v1.md`). Two built-in plugins ship in `src/builtin-plugins/`: `com.noa.sine` (8-voice polyphonic sine generator with a 3-preset bank demonstrating glitch-free hot-swap) and `com.noa.gain` (linear gain insert). Each plugin's RT processing runs in the audio worklet; a per-instance JS `Worker` handles slow non-RT work like preset compilation. Each plugin can ship a floating HTML UI hosted in a sandboxed iframe. A Service Worker at `/plugin-cache-sw.js` serves plugin assets out of OPFS under `/_noa/*`, and a Browser-pane install flow lets users add new plugins from a `.noaplugin` ZIP URL. Project state (tracks, clips, channels, BPM, loop, metronome, plugin instances, installedPlugins) lives in a `SharedWorker` in `src/coordinator/`, persisted to OPFS. Per-channel mixer meters are still simulated; multi-track audio routing arrives in Phase 6 — see `docs/superpowers/plans/2026-05-17-noa-daw-roadmap.md`.
 
 ### State lives in App.jsx
 
 `src/App.jsx` is the single source of truth. It owns `tracks`, `clips`, `channels`, transport state (`playing`, `recording`, `bpm`, `time`), selection, view toggles, and `levels`. All child components are presentational — they receive data + callbacks as props and never own domain state. When adding behavior, mutate state in `App.jsx` and pass a new callback down; don't create local stores or contexts.
 
-Initial state seeds come from `src/data.js` (`DEMO_TRACKS`, `DEMO_CLIPS`, `DEMO_CHANNELS`, `PLUGINS`, `FILES`, `TRACK_COLORS`). Editing `data.js` is the supported way to change the starting project.
+Initial state seeds come from `src/data.js` (`DEMO_TRACKS`, `DEMO_CLIPS`, `DEMO_CHANNELS`, `FILES`, `TRACK_COLORS`) plus `projectModel.ts`'s `SEED_INSTALLED_PLUGINS` (the two built-ins). Editing those is the supported way to change the starting project.
 
 ### The two-loop time model
 
@@ -47,7 +47,7 @@ The Browser pane writes a serialized plugin object onto the drag event:
 - **Playlist track header** → `kind === 'gen'` → `onAssignGenerator(trackId, name)` sets the track's generator and forces `type: 'midi'`.
 - **Mixer channel strip or FX panel** → `kind === 'fx'` → `onAddEffect(channelId, plugin)` appends an effect with a new random id.
 
-Both endpoints live in their respective components; the data contract is just the `{name, kind, tag}` shape from `PLUGINS`.
+Both endpoints live in their respective components; the data contract is the `{pluginId, name, kind, tag}` shape that App.jsx derives from the coordinator's `installedPlugins`.
 
 ### Clip model and the piano roll
 
@@ -92,8 +92,10 @@ TypeScript module, isolated from the JSX UI. Communicates with the React tree vi
 - `PluginWorkerCore.ts` (Phase 4) — Platform-agnostic message handler that drives the worker's PluginInstance. Tested directly in Node.
 - `plugin-host.worker.ts` (Phase 4) — Worker entry. Wires `self.onmessage` to a `PluginWorkerCore` instance; ~10 LoC.
 - `PluginUIProtocol.ts` — Iframe ↔ host postMessage envelopes: `HELLO` (host → iframe, carries manifest + initialParams + ring SABs), `READY` (iframe → host on load), `STATE_RESTORE` / `STATE_SNAPSHOT_*` (defined, no v1 consumers), `PRESET_REQUEST` (iframe → host, ABI v1.1). Plus `isReady` / `isStateSnapshot*` / `isPresetRequest` validators.
-- `PluginUIHost.ts` — Per-instance iframe lifecycle. Builds a Blob URL from the plugin's HTML with a vanilla-JS bootstrap prepended that exposes `window.__noa = { manifest, initialParams, onReady, setParam(idx, value), pollNotify(), applyPreset(bytes) }`. Plugin HTML never touches the binary ring layout directly. Sandbox is `allow-scripts allow-same-origin` — `allow-same-origin` is required for SAB postMessage across the iframe boundary.
-- `bootBuiltins.js` — Boot helper that builds a `PluginRegistry` containing both built-in plugins (manifest + compiled WebAssembly.Module + UI HTML). Vite resolves the JSON / `?url` / `?raw` imports at build time.
+- `PluginUIHost.ts` — Per-instance iframe lifecycle. Two paths: (a) **Service Worker**, used when `args.serviceWorker` is set — posts `BIND_INSTANCE` and points the iframe at `/_noa/plugin-ui/<instanceId>/<entry>`, so sub-resources resolve from OPFS via the SW; (b) **Blob URL fallback**, used when the SW hasn't activated — inlines the bootstrap and serves the entry HTML via `URL.createObjectURL`. Sandbox is `allow-scripts allow-same-origin` — required for SAB postMessage across the iframe boundary.
+- `pluginUiBootstrap.ts` — Vanilla-JS bootstrap injected into every plugin UI HTML (by `PluginUIHost` on the Blob path, by `SwCore` on the SW path). Exposes `window.__noa = { manifest, initialParams, onReady, setParam(idx, value), pollNotify(), applyPreset(bytes) }`. Plugin HTML never touches the binary ring layout directly.
+- `PluginInstaller.ts` (Phase 5) — `.noaplugin` ZIP install flow. `installFromUrl(url)` fetches the ZIP, optionally verifies a `#sha256/384/512-<base64>` SRI fragment, unzips via fflate, validates path safety, total size (50 MB cap), file count (1000), manifest, wasm (`WebAssembly.validate`), and presence of `manifest.ui.entry`; writes to `OpfsPluginStore` and dispatches `INSTALL_PLUGIN` to the coordinator. `uninstall(pluginId)` clears OPFS and dispatches `UNINSTALL_PLUGIN`. Pure logic — fetch/store/dispatch are injected, so the install flow is fully testable in Node.
+- `bootBuiltins.js` — Boot helper that builds a `PluginRegistry` containing both built-in plugins (manifest + wasm bytes + UI HTML). Vite resolves the JSON / `?url` / `?raw` imports at build time. (Phase 5 also seeds the same artifacts into OPFS on first boot via `src/sw/seedBuiltins.js`; the engine load path still uses the Vite-bundled registry — OPFS-only runtime loading lands with multi-track routing in Phase 6.)
 
 **EngineClient orchestration (Phase 4):** `loadPlugin(args)` now spawns a per-instance Worker alongside the worklet's INSTANTIATE_PLUGIN. The Worker is constructed from `plugin-host.worker.ts`; `EngineClient` tracks `{slot, worker, pluginWorker}` per instance and exposes `preparePreset` / `activatePreset` / `freePreset`. `unloadInstance(instanceId)` tears down both sides; `dispose()` terminates every spawned worker.
 
@@ -128,3 +130,14 @@ TypeScript module hosting a `SharedWorker` that owns the canonical project state
 - `ClientBridge.ts` — Main-thread adapter. Mirrors state via `applyPatches`; exposes `dispatch`/`undo`/`redo`/`subscribe`.
 - `useProject.js` — React hooks (`useProject(selector)`, `useDispatch()`, `useUndoRedo()`) over `useSyncExternalStore`. Selectors must be stable references — module-scope is the cleanest pattern (e.g. `const selectTracks = (p) => p.tracks;`).
 - `connectCoordinator.js` — Singleton bridge; first call creates the `SharedWorker`, subsequent calls return the same bridge.
+
+### Service Worker module (`src/sw/`, Phase 5)
+
+A Service Worker at `/plugin-cache-sw.js` (built from `src/sw/plugin-cache.sw.ts`) serves the `/_noa/*` URL namespace out of OPFS so plugins can be delivered offline-safe with relative sub-resource URLs that actually work.
+
+- `OpfsPluginStore.ts` — Read/write helpers over OPFS at `/plugins/<id>/<version>/`. `install`, `readFile`, `list`, `remove`. Path safety: rejects `..`, absolute paths, and backslashes. Used from both the SW (to serve reads) and the main thread (for seed + installer writes).
+- `SwCore.ts` — Platform-agnostic router. `handleFetch(url)` resolves `/_noa/plugins/<id>/<version>/{wasm,manifest}` and `/_noa/plugin-ui/<instanceId>/<path>` against the store; HTML responses on the UI path get the plugin-UI bootstrap injected so plugins don't need to embed it. `handleMessage(data, source)` accepts `BIND_INSTANCE` / `UNBIND_INSTANCE` / `INVALIDATE_PLUGIN` / `PING`. Tested in Node against a fake OPFS handle in `src/sw/__tests__/fakeOpfs.ts`.
+- `plugin-cache.sw.ts` — Thin SW shell that wires `fetch` and `message` events to a lazily-constructed `SwCore`. Lives at the build root so `navigator.serviceWorker.register('/plugin-cache-sw.js')` resolves identically in dev and prod.
+- `registerSW.js` — Main-thread registration. Exposes the registration promise on `window.__noa.swReady` so callers (App.jsx, PluginUIHost) can await activation. Resolves null on unsupported browsers / failed registration; consumers then fall back to Blob URLs.
+- `seedBuiltins.js` — First-boot OPFS seed for the two built-ins. Idempotent (returns immediately if the store is non-empty). Runs in parallel with SW registration; exposed as `window.__noa.seedReady`.
+- `openOpfsPluginStore.js` — Shared helper used by both main.jsx (for seeding) and App.jsx (for the installer).

@@ -119,7 +119,11 @@
 
 ---
 
-## Phase 5 — Service Worker delivery
+## Phase 5 — Service Worker delivery ✓ shipped 2026-05-18
+
+**Shipped:** Service Worker at `/plugin-cache-sw.js` serves `/_noa/plugins/<id>/<version>/{wasm,manifest}` and `/_noa/plugin-ui/<instanceId>/<path>` out of OPFS. The two built-ins are seeded into OPFS on first boot, then served from there. `PluginUIHost` switches to SW URLs when the registration resolves, so plugin UIs can reference relative CSS/fonts/scripts. `PluginInstaller.installFromUrl(url)` fetches a `.noaplugin` ZIP, verifies an optional `#sha256/384/512-<base64>` SRI fragment, unpacks via fflate, validates structure (path safety, size cap 50 MB, file count 1000, manifest parse, `WebAssembly.validate`, ui entry presence), writes to `OpfsPluginStore`, and dispatches `INSTALL_PLUGIN`. Coordinator gains `installedPlugins` state with `INSTALL_PLUGIN` / `UNINSTALL_PLUGIN` actions (dedupes by pluginId). Browser pane has an "Install plugin from URL…" modal and a per-card uninstall × button. 228 unit tests across 20 suites. The engine's runtime load path still uses the Vite-bundled registry — the OPFS-only runtime swap moves with multi-track audio routing in Phase 6.
+
+## Phase 5 (original outline) — Service Worker delivery
 
 **Delivers:** Plugins installed from URLs, cached offline, served with COEP-compatible headers. Crucially, this phase replaces Phase 3's inline-data-URL UI bundling with a real virtual filesystem, so plugin UIs can ship arbitrary assets (multiple HTML files, CSS imports, fonts, large SVG/PNG art, dynamic `import()`s).
 
