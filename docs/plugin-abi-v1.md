@@ -221,3 +221,79 @@ Before shipping:
 - [ ] `noa_init` succeeds (returns `1`) for `(sample_rate=48000, max_block_size=2048)`.
 - [ ] State round-trips: `noa_set_state(noa_get_state(x))` restores plugin to the same observable state.
 - [ ] If the plugin ships a UI, `manifest.ui.entry` exists in the plugin's `ui/` folder.
+
+---
+
+## 9. ABI v1.1 — preset hot-swap (optional, additive)
+
+ABI **version stays at 1**. v1.1 adds four optional exports plus a hard contract on `noa_set_state`. Plugins that ship the full v1.1 set get host-side preset hot-swap: a per-instance JS Worker calls the slow `noa_preset_prepare` on a second WASM instance, then the worklet applies the prepared state via `noa_set_state` in O(memcpy) — no audio glitch.
+
+### 9.1 Required `noa_set_state` contract
+
+For hot-swap to work without glitches, **`noa_set_state` must be O(memcpy + atomic indices)**. No allocations, no table rebuilds, no parsing. If your plugin needs to compute derived data, do it in `noa_preset_prepare` (on the worker) and serialize the result via `noa_preset_serialize` so the worklet only memcpys bytes.
+
+Plugins that put heavy work in `noa_set_state` will still load, but the audio thread will glitch every time the host applies a preset. The host doesn't enforce this; the plugin author owns the contract.
+
+### 9.2 New exports
+
+All four are optional. Either all four are present (preset support) or none are present (no preset support). A partial set causes the host's registry to reject the plugin.
+
+| Symbol | Signature | Purpose |
+| --- | --- | --- |
+| `noa_preset_prepare` | `(in_ptr: u32, in_len: u32) -> u32` | Parse the compressed preset bytes at `in_ptr` (length `in_len`) into an internal "hot" form. Returns a non-zero `handle` on success, `0` on failure. **May take arbitrarily long** — this is the slow path, called only from the worker thread. |
+| `noa_preset_get_state_size` | `(handle: u32) -> u32` | Bytes the prepared preset will occupy when serialized to `noa_set_state`-compatible format. Called after `prepare` returns a handle. |
+| `noa_preset_serialize` | `(handle: u32, out_ptr: u32) -> u32` | Write the prepared preset's bytes to `out_ptr` in the format `noa_set_state` accepts. Returns bytes actually written. The host calls this on the **worker** instance, then ships the bytes to the worklet for `noa_set_state`. |
+| `noa_preset_free` | `(handle: u32) -> void` | Release the resources behind `handle`. Called by the host once the worklet has activated the prepared state. |
+
+### 9.3 Worked example: a preset bank
+
+```typescript
+const MAX_PRESETS: i32 = 4;
+const preset_volume = new StaticArray<f32>(MAX_PRESETS);
+const preset_octave = new StaticArray<f32>(MAX_PRESETS);
+const preset_used   = new StaticArray<bool>(MAX_PRESETS);
+
+export function noa_preset_prepare(inPtr: u32, inLen: u32): u32 {
+  if (inLen != 12) return 0;
+  // Optional: check magic bytes
+  if (load<u8>(inPtr)     != 0x4E /* 'N' */) return 0;
+  if (load<u8>(inPtr + 1) != 0x53 /* 'S' */) return 0;
+  if (load<u8>(inPtr + 2) != 0x50 /* 'P' */) return 0;
+  if (load<u8>(inPtr + 3) != 0x31 /* '1' */) return 0;
+  // Allocate a slot
+  for (let i: i32 = 0; i < MAX_PRESETS; i++) {
+    if (!preset_used[i]) {
+      preset_volume[i] = load<f32>(inPtr + 4);
+      preset_octave[i] = load<f32>(inPtr + 8);
+      preset_used[i]   = true;
+      // Simulate slow parsing — replace this with your real work
+      for (let j: i32 = 0; j < 30_000_000; j++) {}
+      return <u32>(i + 1); // 1-based handle
+    }
+  }
+  return 0;
+}
+
+export function noa_preset_get_state_size(handle: u32): u32 {
+  return 8; // two f32s — same as noa_state_size
+}
+
+export function noa_preset_serialize(handle: u32, outPtr: u32): u32 {
+  const i: i32 = <i32>(handle - 1);
+  if (i < 0 || i >= MAX_PRESETS || !preset_used[i]) return 0;
+  store<f32>(outPtr, preset_volume[i]);
+  store<f32>(outPtr + 4, preset_octave[i]);
+  return 8;
+}
+
+export function noa_preset_free(handle: u32): void {
+  const i: i32 = <i32>(handle - 1);
+  if (i >= 0 && i < MAX_PRESETS) preset_used[i] = false;
+}
+```
+
+### 9.4 Host-side flow
+
+The host's `EngineClient.preparePreset(...)` posts to the per-instance worker, which calls `noa_preset_prepare` on its WASM instance, then `noa_preset_serialize`, and ships the bytes back. The host then calls `EngineClient.activatePreset(...)` which posts `APPLY_PRESET_STATE` to the worklet. The worklet calls `noa_set_state` on its instance — fast.
+
+Plugins should expect `noa_set_state` calls only between audio blocks, with the bytes laid out exactly as `noa_preset_serialize` wrote them.
