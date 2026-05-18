@@ -111,19 +111,25 @@ export default function App() {
           const initialParams = instance.params.length > 0
             ? instance.params
             : entry.manifest.params.map((p) => p.default);
+          // Reserve a slot up-front so a failed load doesn't break later
+          // instances' slot indices.
           const slot = nextSlot++;
-          const result = await engine.loadPlugin({
-            instanceId: instance.id,
-            slot,
-            module: entry.module,
-            manifest: entry.manifest,
-            initialParams,
-          });
-          map.set(instance.id, slot);
-          rings.set(instance.id, {
-            paramRingSab: result.paramRingSab,
-            notifyRingSab: result.notifyRingSab,
-          });
+          try {
+            const result = await engine.loadPlugin({
+              instanceId: instance.id,
+              slot,
+              module: entry.module,
+              manifest: entry.manifest,
+              initialParams,
+            });
+            map.set(instance.id, slot);
+            rings.set(instance.id, {
+              paramRingSab: result.paramRingSab,
+              notifyRingSab: result.notifyRingSab,
+            });
+          } catch (err) {
+            console.error(`Plugin ${instance.pluginId} (${instance.id}) failed to load at slot ${slot}:`, err);
+          }
         };
 
         for (const track of tracksRef.current) {

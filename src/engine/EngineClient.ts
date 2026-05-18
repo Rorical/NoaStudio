@@ -147,14 +147,29 @@ export class EngineClient {
       { type: 'module' },
     );
     const pluginWorker = new PluginWorker(worker);
+
+    // Promise-shaped wrapper around the worker's error events so a worker
+    // that fails to load (URL/module/import error) doesn't leave loadPlugin
+    // awaiting READY forever. Whichever resolves first wins.
+    const errorPromise = new Promise<never>((_, reject) => {
+      worker.onerror = (e) => {
+        const reason = (e instanceof ErrorEvent && e.message) ? e.message : 'unknown worker error';
+        reject(new Error(`plugin-host.worker errored: ${reason}`));
+      };
+      worker.onmessageerror = () => reject(new Error('plugin-host.worker message decoding error'));
+    });
+
     try {
-      await pluginWorker.spawn({
-        instanceId: args.instanceId,
-        module: args.module,
-        manifest: args.manifest,
-        sampleRate: this.sampleRate,
-        maxBlockSize: WORKER_MAX_BLOCK_SIZE,
-      });
+      await Promise.race([
+        pluginWorker.spawn({
+          instanceId: args.instanceId,
+          module: args.module,
+          manifest: args.manifest,
+          sampleRate: this.sampleRate,
+          maxBlockSize: WORKER_MAX_BLOCK_SIZE,
+        }),
+        errorPromise,
+      ]);
     } catch (err) {
       pluginWorker.dispose();
       worker.terminate();
