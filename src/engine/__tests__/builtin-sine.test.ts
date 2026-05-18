@@ -189,4 +189,41 @@ describe('com.noa.sine', () => {
     expect(b.readParam(1)).toBeCloseTo(-1, 5);
     b.destroy();
   });
+
+  it('exports the ABI v1.1 preset symbols', async () => {
+    const inst = await PluginInstance.fromBytes(bytes, manifest, { sampleRate: SR, maxBlockSize: BLOCK });
+    expect(inst.hasPresetSupport()).toBe(true);
+    inst.destroy();
+  });
+
+  it('prepare → serialize → setState round-trips Volume + Octave', async () => {
+    const worker = await PluginInstance.fromBytes(bytes, manifest, { sampleRate: SR, maxBlockSize: BLOCK });
+    // 12-byte 'NSP1' payload: Volume=0.7, Octave=+1
+    const payload = new Uint8Array(12);
+    payload[0] = 0x4E; payload[1] = 0x53; payload[2] = 0x50; payload[3] = 0x31;
+    new DataView(payload.buffer).setFloat32(4, 0.7, true);
+    new DataView(payload.buffer).setFloat32(8, 1, true);
+    const handle = worker.preparePreset(payload);
+    expect(handle).toBeGreaterThan(0);
+    const stateBytes = worker.serializePreset(handle);
+    expect(stateBytes.byteLength).toBe(8);
+    worker.freePreset(handle);
+    worker.destroy();
+
+    // Apply the prepared state to a fresh instance (simulating the worklet path).
+    const rt = await PluginInstance.fromBytes(bytes, manifest, { sampleRate: SR, maxBlockSize: BLOCK });
+    expect(rt.setState(stateBytes)).toBe(true);
+    expect(rt.readParam(0)).toBeCloseTo(0.7, 5);
+    expect(rt.readParam(1)).toBeCloseTo(1, 5);
+    rt.destroy();
+  });
+
+  it('preparePreset rejects payloads with wrong magic', async () => {
+    const inst = await PluginInstance.fromBytes(bytes, manifest, { sampleRate: SR, maxBlockSize: BLOCK });
+    const bad = new Uint8Array(12);
+    // Right length, wrong magic.
+    bad[0] = 0xAA;
+    expect(() => inst.preparePreset(bad)).toThrow();
+    inst.destroy();
+  });
 });

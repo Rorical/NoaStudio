@@ -163,3 +163,64 @@ export function noa_destroy(): void {
     vAmp[i] = 0;
   }
 }
+
+// --- ABI v1.1 preset hot-swap ----------------------------------------------
+//
+// Preset payload: 12 bytes — 'NSP1' magic (4B) + Volume f32 + Octave f32.
+// Up to 4 prepared presets can be held at a time. A handle is the 1-based slot
+// index. noa_preset_prepare burns ~PRESET_DELAY_ITERS cycles to simulate slow
+// parsing — this is the value-prove: the worker absorbs it while the worklet
+// keeps rendering audio uninterrupted.
+
+const MAX_PRESETS: i32 = 4;
+/**
+ * Empty-loop iteration count tuned to ~30ms on modern hardware. Used purely
+ * as a "this would block the audio thread if you ran it there" demo.
+ */
+const PRESET_DELAY_ITERS: i32 = 30_000_000;
+
+const presetUsed:   StaticArray<bool> = new StaticArray<bool>(MAX_PRESETS);
+const presetVolume: StaticArray<f32>  = new StaticArray<f32>(MAX_PRESETS);
+const presetOctave: StaticArray<f32>  = new StaticArray<f32>(MAX_PRESETS);
+
+export function noa_preset_prepare(inPtr: u32, inLen: u32): u32 {
+  if (inLen != 12) return 0;
+  // Magic check: 'NSP1'
+  if (load<u8>(inPtr)     != 0x4E) return 0;
+  if (load<u8>(inPtr + 1) != 0x53) return 0;
+  if (load<u8>(inPtr + 2) != 0x50) return 0;
+  if (load<u8>(inPtr + 3) != 0x31) return 0;
+  for (let i: i32 = 0; i < MAX_PRESETS; i++) {
+    if (!presetUsed[i]) {
+      presetVolume[i] = load<f32>(inPtr + 4);
+      presetOctave[i] = load<f32>(inPtr + 8);
+      presetUsed[i]   = true;
+      // Synthetic parse-time delay. Replace with real work in a real plugin.
+      for (let j: i32 = 0; j < PRESET_DELAY_ITERS; j++) {
+        // Memory write keeps the optimizer from eliding the loop.
+        if ((j & 0xFFFFFF) == 0) presetVolume[0] = presetVolume[0];
+      }
+      return <u32>(i + 1);
+    }
+  }
+  return 0;
+}
+
+export function noa_preset_get_state_size(handle: u32): u32 {
+  const i: i32 = <i32>(handle - 1);
+  if (i < 0 || i >= MAX_PRESETS || !presetUsed[i]) return 0;
+  return 8;
+}
+
+export function noa_preset_serialize(handle: u32, outPtr: u32): u32 {
+  const i: i32 = <i32>(handle - 1);
+  if (i < 0 || i >= MAX_PRESETS || !presetUsed[i]) return 0;
+  store<f32>(outPtr, presetVolume[i]);
+  store<f32>(outPtr + 4, presetOctave[i]);
+  return 8;
+}
+
+export function noa_preset_free(handle: u32): void {
+  const i: i32 = <i32>(handle - 1);
+  if (i >= 0 && i < MAX_PRESETS) presetUsed[i] = false;
+}
