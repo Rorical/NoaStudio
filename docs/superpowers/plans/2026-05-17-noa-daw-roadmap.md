@@ -147,6 +147,10 @@
 
 ---
 
+## Phase 6d — Engine loads from OPFS via SW ✓ shipped 2026-05-19
+
+**Shipped:** `PluginRegistry.loadFromOpfsViaSw(pluginId, version)` fetches `manifest` + `wasm` via the SW's `/_noa/plugins/...` namespace. The diff-sync in App.jsx detects a "wanted instance whose pluginId isn't in the registry yet", looks up the version in coordinator `installedPlugins`, awaits the SW-readiness promise, fetches the bytes, registers them, then bumps `registryVersion` so the diff-sync re-runs with the registry populated. In-flight pulls are deduped by pluginId so concurrent re-runs don't fire redundant fetches. Verified end-to-end: installed `com.test.smoke` (NOT in the Vite bundle) via the Browser modal, dispatched LOAD_PLUGIN on channel `m5`, engine loaded numericId 3 on chain 'm5' — completes the Phase 5 install-from-URL story so audio actually flows.
+
 ## Phase 6c — Dynamic plugin lifecycle ✓ shipped 2026-05-19
 
 **Shipped:** App.jsx's one-shot boot effect collapses into a diff-sync that runs on every coordinator change. The "loaded" set tracks `{instanceId → (chainId, slot)}` in the engine; the "wanted" set is rebuilt from `tracks[].generator` + `channels[].effects` each render; missing entries trigger `engine.unloadInstance`, new entries trigger `engine.loadPlugin`, and (chainId, slot) mismatches (e.g. FX removed from the middle of a rack shifts later entries) treat as remove + add. The seed loads through the same diff on the effect's first run — no separate bootstrap. Drag-from-Browser onto a track header (Sine onto Bass) or the Mixer (Gain onto Master) now produces audible audio immediately; uninstalling an FX through the × button removes it from the engine cleanly while the surrounding chain keeps playing. Engine loading from OPFS remains deferred to a future 6d.

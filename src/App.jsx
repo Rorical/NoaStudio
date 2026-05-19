@@ -10,6 +10,7 @@ import { TRACK_COLORS, FILES } from './data.js';
 import { useEngine } from './engine/useEngine.js';
 import { bootBuiltinRegistry } from './engine/bootBuiltins.js';
 import { PluginInstaller } from './engine/PluginInstaller.ts';
+import { PluginRegistry } from './engine/PluginRegistry.ts';
 import { ClipScheduler } from './engine/ClipScheduler.ts';
 import { channelHash } from './engine/channelHash.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
@@ -242,6 +243,9 @@ export default function App() {
    * on this effect's first run too — there's no separate boot path.
    */
   const loadedInstancesRef = useRef(new Map()); // instanceId → { chainId, slot }
+  /** In-flight OPFS-via-SW pulls keyed by pluginId, so concurrent diff-sync
+   *  re-runs don't fire duplicate fetches. */
+  const opfsLoadInFlightRef = useRef(new Set());
   useEffect(() => {
     if (!engineReady) return;
     const engine = engineRef.current;
@@ -271,11 +275,38 @@ export default function App() {
       }
     }
 
+    // Index installed plugins by id so the registry-miss path can resolve a version.
+    const installedById = new Map(installedPlugins.map((p) => [p.pluginId, p]));
+
     // Load anything new. Optimistically mark loaded to dedupe concurrent re-runs.
     let mounted = true;
     for (const [id, target] of wanted) {
       if (loaded.has(id)) continue;
-      if (!registry.has(target.instance.pluginId)) continue;
+
+      // Plugin not yet in registry? Try fetching from OPFS via the SW
+      // (Phase 6d). After the fetch resolves we bump registryVersion so this
+      // effect re-runs with the registry populated.
+      if (!registry.has(target.instance.pluginId)) {
+        const inFlight = opfsLoadInFlightRef.current;
+        if (inFlight.has(target.instance.pluginId)) continue;
+        const installed = installedById.get(target.instance.pluginId);
+        if (!installed) continue;
+        inFlight.add(target.instance.pluginId);
+        Promise.resolve(window.__noa?.swReady)
+          .then(() => PluginRegistry.loadFromOpfsViaSw(installed.pluginId, installed.version))
+          .then((entry) => {
+            if (!mounted) return;
+            try { registry.install(entry); } catch { /* already installed by another run */ }
+            inFlight.delete(installed.pluginId);
+            setRegistryVersion((v) => v + 1);
+          })
+          .catch((err) => {
+            console.error(`OPFS load ${installed.pluginId}@${installed.version} failed:`, err);
+            inFlight.delete(installed.pluginId);
+          });
+        continue;
+      }
+
       const entry = registry.get(target.instance.pluginId);
       const initialParams = target.instance.params.length > 0
         ? target.instance.params
@@ -303,7 +334,7 @@ export default function App() {
       });
     }
     return () => { mounted = false; };
-  }, [engineReady, tracks, channels, registryVersion, engineRef]);
+  }, [engineReady, tracks, channels, installedPlugins, registryVersion, engineRef]);
 
   // Re-sync the worklet's routing topology whenever tracks/channels change.
   // Fires after the boot effect because that's when the chains exist;

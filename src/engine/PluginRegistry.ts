@@ -44,6 +44,33 @@ export class PluginRegistry {
   }
 
   /**
+   * Fetch a plugin's manifest + wasm via the Service Worker's `/_noa/plugins/`
+   * namespace (Phase 6d). Unlike `loadBuiltin`, UI assets aren't preloaded —
+   * the SW serves them on-demand from OPFS when the iframe opens. Throws on
+   * fetch failure (SW not registered, plugin not installed in OPFS, etc.).
+   */
+  static async loadFromOpfsViaSw(pluginId: string, version: string): Promise<PluginRegistryEntry> {
+    const base = `/_noa/plugins/${encodeURIComponent(pluginId)}/${encodeURIComponent(version)}`;
+    const manifestRes = await fetch(`${base}/manifest`);
+    if (!manifestRes.ok) {
+      throw new Error(`PluginRegistry.loadFromOpfsViaSw: manifest fetch failed (${manifestRes.status}) for ${pluginId}@${version}`);
+    }
+    const ct = manifestRes.headers.get('Content-Type') ?? '';
+    if (!ct.startsWith('application/json')) {
+      throw new Error(`PluginRegistry.loadFromOpfsViaSw: manifest had unexpected Content-Type '${ct}' (SW probably not active)`);
+    }
+    const manifest = parseManifest(await manifestRes.json());
+
+    const wasmRes = await fetch(`${base}/wasm`);
+    if (!wasmRes.ok) {
+      throw new Error(`PluginRegistry.loadFromOpfsViaSw: wasm fetch failed (${wasmRes.status}) for ${pluginId}@${version}`);
+    }
+    const wasm = new Uint8Array(await wasmRes.arrayBuffer());
+
+    return { manifest, wasm, uiAssets: new Map() };
+  }
+
+  /**
    * Fetch and compile a built-in plugin from a folder URL.
    * Layout: `<baseUrl>/plugin.json`, `<baseUrl>/plugin.wasm`, optional `<baseUrl>/ui/<entry>`.
    *
