@@ -15,73 +15,12 @@ import { ClipScheduler } from './engine/ClipScheduler.ts';
 import { channelHash } from './engine/channelHash.ts';
 import { diffInstanceParams } from './engine/diffInstanceParams.ts';
 import { MidiInput } from './engine/MidiInput.ts';
+import { buildRoutingConfig } from './engine/routingConfig.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
 
-/**
- * Translate the coordinator's tracks/channels into a worklet RoutingConfig.
- * v1 honours only sends[0]; multi-destination sends arrive in a later phase.
- */
-function buildRoutingConfig(tracks, channels) {
-  return {
-    tracks: tracks
-      .filter((t) => t.generator)
-      .map((t) => ({
-        id: t.id,
-        chainId: t.id,
-        channelId: 'm' + t.channel,
-        mute: !!t.mute,
-        solo: !!t.solo,
-        vol: t.vol ?? 1,
-      })),
-    channels: channels.map((c) => {
-      const sendsTo = (c.sends ?? []).slice();
-      const sendsLevels = sendsTo.map((dest) => c.sendLevels?.[dest] ?? 1);
-      return {
-        id: c.id,
-        fxChainId: c.id,
-        vol: c.vol ?? 1,
-        pan: c.pan ?? 0,
-        mute: !!c.mute,
-        solo: !!c.solo,
-        sendsTo,
-        sendsLevels,
-      };
-    }),
-    channelOrder: topoSortChannels(channels),
-  };
-}
-
-/**
- * Topological order over the channel send graph. Sources first, sinks last —
- * so master (no outgoing sends) processes after every channel that feeds it.
- * Fan-out: a channel can send to several destinations; each contributes one
- * incoming edge to its target.
- */
-function topoSortChannels(channels) {
-  const ids = channels.map((c) => c.id);
-  const idSet = new Set(ids);
-  const inDeg = new Map(ids.map((id) => [id, 0]));
-  for (const c of channels) {
-    for (const dest of c.sends ?? []) {
-      if (idSet.has(dest)) inDeg.set(dest, inDeg.get(dest) + 1);
-    }
-  }
-  const order = [];
-  const queue = ids.filter((id) => inDeg.get(id) === 0);
-  while (queue.length > 0) {
-    const id = queue.shift();
-    order.push(id);
-    const c = channels.find((x) => x.id === id);
-    for (const dest of c?.sends ?? []) {
-      if (!idSet.has(dest)) continue;
-      inDeg.set(dest, inDeg.get(dest) - 1);
-      if (inDeg.get(dest) === 0) queue.push(dest);
-    }
-  }
-  for (const id of ids) if (!order.includes(id)) order.push(id);
-  return order;
-}
+// buildRoutingConfig + topoSortChannels live in src/engine/routingConfig.ts
+// so they're testable outside the React tree.
 
 const selectTracks = (p) => p.tracks;
 const selectClips = (p) => p.clips;
