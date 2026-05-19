@@ -7,7 +7,7 @@ export const TOTAL_BEATS = 32 * BAR_BEATS;
 const TRACK_H = 56;
 
 export default function Playlist({
-  tracks, clips, selectedClipId, onSelectClip, onMoveClip, onResizeClip, onOpenPianoRoll,
+  tracks, clips, selectedClipId, onSelectClip, onMoveClip, onResizeClip, onDuplicateClip, onOpenPianoRoll,
   time, playing, onSetTime, onAssignGenerator, onAddTrackEffect,
   onRemoveTrackEffect, onReorderTrackEffect,
   selectedTrackId, onSelectTrack,
@@ -32,6 +32,12 @@ export default function Playlist({
   const onClipMouseDown = (e, clip) => {
     e.stopPropagation();
     onSelectClip(clip.id);
+    if (e.altKey) {
+      // Alt-click: clone the clip in place. Original stays selected; the
+      // duplicate appears at start+length and the user can drag it from there.
+      onDuplicateClip?.(clip.id);
+      return;
+    }
     setDrag({ kind: 'move', id: clip.id, startX: e.clientX, orig: clip.start, last: 0 });
   };
 

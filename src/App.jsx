@@ -805,6 +805,7 @@ export default function App() {
               onRemoveTrackEffect={removeTrackEffect}
               onReorderTrackEffect={reorderTrackEffect}
               onResizeClip={(id, length) => dispatch({ type: 'SET_CLIP_LENGTH', clipId: id, length })}
+              onDuplicateClip={(id) => dispatch({ type: 'DUPLICATE_CLIP', clipId: id })}
               selectedTrackId={selectedTrackId}
               onSelectTrack={setSelectedTrackId}
               pluginCatalog={pluginCatalog}
