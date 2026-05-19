@@ -13,7 +13,8 @@ function formatSnap(beats) {
 export default function Toolbar({
   playing, onPlay, onStop, onRecord, recording, loop, onLoop,
   metronome, onMetronome, bpm, onBpm, time, timeSig, projectName, masterLevels,
-  masterVol, onMasterVol, snapBeats, onCycleSnap, onSaveProject, onLoadProject,
+  masterVol, onMasterVol, snapBeats, onCycleSnap, onTapTempo,
+  onSaveProject, onLoadProject,
   view, onView, browserOpen, onToggleBrowser, pianoOpen, onTogglePiano,
   onOpenTweaks, onUndo, onRedo, canUndo, canRedo,
 }) {
@@ -144,6 +145,16 @@ export default function Toolbar({
           >
             <span className="meta-label">SNAP</span>
             <span className="meta-value mono">{formatSnap(snapBeats)}</span>
+          </button>
+        )}
+        {onTapTempo && (
+          <button
+            className="meta-tile meta-tile-button"
+            onClick={onTapTempo}
+            title="Tap each beat to set tempo"
+          >
+            <span className="meta-label">TAP</span>
+            <span className="meta-value mono">⌖</span>
           </button>
         )}
       </div>

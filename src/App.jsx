@@ -19,6 +19,7 @@ import { buildRoutingConfig } from './engine/routingConfig.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
 import { findAdjacentClip, findClipOnAdjacentTrack } from './coordinator/findAdjacentClip.ts';
+import { calcTapBpm } from './coordinator/calcTapBpm.ts';
 
 // buildRoutingConfig + topoSortChannels live in src/engine/routingConfig.ts
 // so they're testable outside the React tree.
@@ -759,6 +760,23 @@ export default function App() {
     dispatch({ type: 'SET_SEND_LEVEL', channelId, destChannelId, level });
   }, [dispatch]);
 
+  // Tap-tempo: drop taps older than 2s, then average the remaining intervals
+  // to compute BPM. Two-second window is conventional and lets the user
+  // restart the count without hitting a reset button.
+  const tapTimestampsRef = useRef([]);
+  const tapTempo = useCallback(() => {
+    const now = performance.now();
+    tapTimestampsRef.current = [
+      ...tapTimestampsRef.current.filter((t) => now - t < 2000),
+      now,
+    ];
+    const next = calcTapBpm(tapTimestampsRef.current);
+    if (next !== null) {
+      dispatch({ type: 'SET_BPM', bpm: next });
+      engineRef.current?.setTempo(next);
+    }
+  }, [dispatch, engineRef]);
+
   // Save: snapshot current project state to a Blob URL the browser downloads.
   const saveProject = useCallback(() => {
     const project = {
@@ -844,6 +862,7 @@ export default function App() {
         masterLevels={masterLevels}
         masterVol={channels.find((c) => c.id === 'm0')?.vol ?? 1}
         onMasterVol={(v) => dispatch({ type: 'SET_FADER', channelId: 'm0', value: v })}
+        onTapTempo={tapTempo}
         onSaveProject={saveProject}
         onLoadProject={loadProject}
         snapBeats={snapBeats}
