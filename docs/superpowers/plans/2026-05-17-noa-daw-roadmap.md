@@ -147,6 +147,10 @@
 
 ---
 
+## Phase 6b — Engine-driven transport + multi-destination sends ✓ shipped 2026-05-19
+
+**Shipped:** Audio worklet now owns transport state — `playheadSamples`, `bpm`, `loopStart..End` — advances per block when playing, and wraps sample-accurately at the loop boundary. The telemetry SAB grew from 1×u32 to 4×u32 (`playheadSamples` / `playheadBeats` f32 / `flags` with playing bit / `blockCounter`). `EngineClient.playheadBeats()` + `isPlaying()` read the SAB; `setLoop({enabled, startBeats, endBeats})` posts a `SET_LOOP` envelope that pre-computes the loop region in samples once. `ChannelRouting.sendTo: string|null` becomes `sendsTo: string[]` + optional `sendsLevels: number[]` so a channel can fan out to master + every bus; `topoSortChannels` in App.jsx walks every destination. The App.jsx transport RAF reads `playheadBeats()` directly and drops the sample-delta math; loop-wrap detection watches for the playhead going backwards and re-anchors the ClipScheduler. 256 unit tests.
+
 ## Phase 6a — Multi-track audio routing ✓ shipped 2026-05-18
 
 **Shipped:** Audio worklet now drives a `MixerRouter` over N chains (one per track-with-generator, one per channel-with-FX). Tracks output through their mixer channel's FX rack and onward through the bus graph (sends[0]) to master. A main-thread `ClipScheduler` look-aheads ~50 ms and pushes NoteOn/NoteOff events with absolute `sampleTime` onto the engine ring; the worklet dispatches them sample-accurately. Every channel publishes a real peak/RMS meter keyed by FNV-1a hash. App.jsx boots N chains, syncs routing on coordinator changes, and replaces the `sin()`/`Math.random()` meter sim with engine reads. 254 unit tests across 22 suites. Engine-driven transport, UI dispatches to coordinator, multi-destination sends, track-level FX inserts, and audio clip PCM playback all move to subsequent 6b/6c sub-phases.

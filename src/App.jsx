@@ -395,31 +395,39 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [undo, redo]);
 
-  const samplesAtPlayStartRef = useRef(0);
-  const timeAtPlayStartRef = useRef(0);
+  // Sync the loop region into the worklet whenever it (or BPM) changes. The
+  // worklet pre-computes loopStart/EndSamples on receipt and wraps the
+  // playhead sample-accurately each block. v1 loops beats [0, 32).
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.setTempo(bpm);
+    engine.setLoop({ enabled: loop, startBeats: 0, endBeats: 32 });
+  }, [engineReady, bpm, loop, engineRef]);
+
   useEffect(() => {
     if (!playing) return;
     const engine = engineRef.current;
     if (!engine) return;
-    samplesAtPlayStartRef.current = engine.currentSamplePosition();
-    timeAtPlayStartRef.current = time;
+    const startSample = engine.currentSamplePosition();
 
-    if (scheduler) scheduler.start({ startSample: samplesAtPlayStartRef.current, startBeat: time });
+    if (scheduler) scheduler.start({ startSample, startBeat: time });
+    let lastBeat = time;
+    let lastSample = startSample;
 
     let raf;
     const tick = () => {
+      const beats = engine.playheadBeats();
       const samples = engine.currentSamplePosition();
-      const elapsedSeconds = ((samples - samplesAtPlayStartRef.current) >>> 0) / engine.sampleRate;
-      const beatsElapsed = elapsedSeconds * (bpm / 60);
-      let next = timeAtPlayStartRef.current + beatsElapsed;
-      if (loop && next > 32) {
-        next = next % 32;
-        samplesAtPlayStartRef.current = samples;
-        timeAtPlayStartRef.current = next;
-        if (scheduler) scheduler.reset({ startSample: samples, startBeat: next });
+      // Loop wrap: the worklet snapped its playhead back; reset the scheduler
+      // anchor at the new (sample, beat) pair so notes after the wrap re-emit.
+      if (beats < lastBeat && scheduler) {
+        scheduler.reset({ startSample: samples, startBeat: beats });
       }
-      if (next > 128) next = 0;
-      setTime(next);
+      lastBeat = beats;
+      lastSample = samples;
+      setTime(beats);
       if (scheduler) scheduler.tick();
       raf = requestAnimationFrame(tick);
     };
@@ -428,8 +436,8 @@ export default function App() {
       cancelAnimationFrame(raf);
       if (scheduler) scheduler.stop();
     };
-    // bpm/loop changes are intentionally re-captured by the new closure.
-  }, [playing, bpm, loop, engineRef, scheduler]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, engineRef, scheduler]);
 
   // Map from FNV-1a hash → channel id. Built once per channel-list change so
   // the meter RAF can route incoming frames back to ids without serialising
