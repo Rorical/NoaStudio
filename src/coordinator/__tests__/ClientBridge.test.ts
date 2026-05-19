@@ -92,4 +92,68 @@ describe('ClientBridge', () => {
     await new Promise((r) => setTimeout(r, 5));
     expect(calls).toBe(1);
   });
+
+  it('initial getState returns a freshly-seeded project before any snapshot', () => {
+    // No connect call — getState should still work and return the seed.
+    const channel = new MessageChannel();
+    const bridge = new ClientBridge(channel.port1);
+    expect(bridge.getState().schemaVersion).toBe(seedProject().schemaVersion);
+  });
+
+  it('initial canUndo/canRedo default to false', () => {
+    const channel = new MessageChannel();
+    const bridge = new ClientBridge(channel.port1);
+    expect(bridge.canUndo()).toBe(false);
+    expect(bridge.canRedo()).toBe(false);
+  });
+
+  it('multiple subscribers all fire on a patch', async () => {
+    const { bridge, send } = makePair();
+    bridge.connect();
+    send({ kind: 'snapshot', state: seedProject() });
+    await new Promise((r) => setTimeout(r, 5));
+    let a = 0, b = 0, c = 0;
+    bridge.subscribe(() => { a++; });
+    bridge.subscribe(() => { b++; });
+    bridge.subscribe(() => { c++; });
+    send({ kind: 'patch', patches: [{ op: 'replace', path: ['bpm'], value: 150 }], sourcePortId: 0 });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(a).toBe(1);
+    expect(b).toBe(1);
+    expect(c).toBe(1);
+  });
+
+  it('snapshot notifies subscribers', async () => {
+    const { bridge, send } = makePair();
+    bridge.connect();
+    let calls = 0;
+    bridge.subscribe(() => { calls++; });
+    send({ kind: 'snapshot', state: seedProject() });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(calls).toBe(1);
+  });
+
+  it('history-changed notifies subscribers', async () => {
+    const { bridge, send } = makePair();
+    bridge.connect();
+    let calls = 0;
+    bridge.subscribe(() => { calls++; });
+    send({ kind: 'history-changed', canUndo: true, canRedo: true });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(calls).toBe(1);
+    expect(bridge.canUndo()).toBe(true);
+    expect(bridge.canRedo()).toBe(true);
+  });
+
+  it('multiple patches apply in order', async () => {
+    const { bridge, send } = makePair();
+    bridge.connect();
+    send({ kind: 'snapshot', state: seedProject() });
+    await new Promise((r) => setTimeout(r, 5));
+    send({ kind: 'patch', patches: [{ op: 'replace', path: ['bpm'], value: 100 }], sourcePortId: 0 });
+    send({ kind: 'patch', patches: [{ op: 'replace', path: ['bpm'], value: 200 }], sourcePortId: 0 });
+    send({ kind: 'patch', patches: [{ op: 'replace', path: ['bpm'], value: 175 }], sourcePortId: 0 });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(bridge.getState().bpm).toBe(175);
+  });
 });
