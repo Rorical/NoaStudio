@@ -551,6 +551,27 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [undo, redo, dispatch]);
 
+  // Audio metronome: fire a brief click on every beat boundary while the
+  // transport is running and the metronome toggle is on. Downbeats (every
+  // 4th beat in 4/4) get a higher-pitched accent. The click goes straight to
+  // AudioContext destination so it doesn't land in the recorded master.
+  const lastMetroBeatRef = useRef(-1);
+  useEffect(() => {
+    if (!playing || !metronome) {
+      lastMetroBeatRef.current = -1;
+      return;
+    }
+    const beat = Math.floor(time);
+    if (beat !== lastMetroBeatRef.current && beat >= 0) {
+      const engine = engineRef.current;
+      if (engine) {
+        const isDownbeat = beat % 4 === 0;
+        engine.playClick(isDownbeat ? 1800 : 1000);
+      }
+      lastMetroBeatRef.current = beat;
+    }
+  }, [playing, metronome, time, engineRef]);
+
   // Sync the loop region into the worklet whenever it (or BPM) changes. The
   // worklet pre-computes loopStart/EndSamples on receipt and wraps the
   // playhead sample-accurately each block. v1 loops beats [0, 32).

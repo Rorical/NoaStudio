@@ -332,6 +332,28 @@ export class EngineClient {
     return this.telemetry ? Atomics.load(this.telemetry, 0) >>> 0 : 0;
   }
 
+  /**
+   * Play a brief metronome-style click directly on the AudioContext's
+   * destination — bypasses the worklet's MixerRouter so the click never
+   * lands on the master signal that's headed to recording. No-op when the
+   * context isn't initialized or is suspended.
+   */
+  playClick(frequency = 1000, duration = 0.05): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = frequency;
+    osc.connect(gain).connect(ctx.destination);
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.15, now + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.start(now);
+    osc.stop(now + duration + 0.01);
+  }
+
   /** Worklet-published playhead in beats. Driven by the transport state. */
   playheadBeats(): number {
     return this.telemetryF32 ? this.telemetryF32[1]! : 0;
