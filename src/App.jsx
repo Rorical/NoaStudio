@@ -14,6 +14,7 @@ import { PluginRegistry } from './engine/PluginRegistry.ts';
 import { ClipScheduler } from './engine/ClipScheduler.ts';
 import { channelHash } from './engine/channelHash.ts';
 import { diffInstanceParams } from './engine/diffInstanceParams.ts';
+import { MidiInput } from './engine/MidiInput.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
 
@@ -381,6 +382,51 @@ export default function App() {
     }
     paramSnapshotRef.current = next;
   }, [engineReady, tracks, channels, registryVersion, engineRef]);
+
+  // MIDI input: enable on demand via window.__noa.enableMidi(trackId).
+  // Requesting MIDI access shows a browser permission prompt, so we don't
+  // auto-fire it on load — the user opts in by calling the helper (a UI
+  // affordance lands in a later phase).
+  const midiInputRef = useRef(null);
+  const midiTargetTrackIdRef = useRef('t1');
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (!midiInputRef.current) {
+      midiInputRef.current = new MidiInput({
+        pushEvent: (frame) => engine.pushEventFrame(frame),
+        getTargetNumericId: () => {
+          const trackId = midiTargetTrackIdRef.current;
+          const track = tracks.find((t) => t.id === trackId);
+          if (!track?.generator) return null;
+          return engine.getNumericId(track.generator.id) ?? null;
+        },
+      });
+    }
+    const noa = (window.__noa = window.__noa ?? {});
+    noa.enableMidi = async (trackId = 't1') => {
+      midiTargetTrackIdRef.current = trackId;
+      if (typeof navigator === 'undefined' || !navigator.requestMIDIAccess) {
+        console.warn('[noa] WebMIDI not available in this browser');
+        return null;
+      }
+      const access = await navigator.requestMIDIAccess();
+      midiInputRef.current?.detachAll();
+      for (const input of access.inputs.values()) midiInputRef.current?.attach(input);
+      access.onstatechange = (e) => {
+        if (e.port.type !== 'input') return;
+        if (e.port.state === 'connected') midiInputRef.current?.attach(e.port);
+        else midiInputRef.current?.detach(e.port);
+      };
+      return access;
+    };
+    noa.disableMidi = () => midiInputRef.current?.detachAll();
+    return () => {
+      midiInputRef.current?.detachAll();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engineReady]);
 
   // ClipScheduler — instantiated once the engine is ready, started/stopped
   // with the transport. Re-syncs its project copy on coordinator changes.
