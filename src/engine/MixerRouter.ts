@@ -41,7 +41,11 @@ export interface ChannelRouting {
   pan: number;
   mute: boolean;
   solo: boolean;
-  sendTo: string | null;
+  /** Every downstream channel this channel feeds. Empty = sink (master). */
+  sendsTo: string[];
+  /** Per-destination level (1.0 = full). Must be the same length as sendsTo;
+   *  omitted entries default to 1.0. */
+  sendsLevels?: number[];
 }
 
 export interface RoutingConfig {
@@ -177,13 +181,21 @@ export class MixerRouter {
         rms: Math.sqrt(sumSq / (blockSize * 2)),
       });
 
-      if (channel.sendTo) {
-        const sendDest = this.getOrAllocBuffer(this.channelInputs, channel.sendTo, blockSize);
-        for (let i = 0; i < blockSize * 2; i++) sendDest[i]! += fxOut[i]!;
-      } else {
-        // Channels with no sendTo are sinks. By convention the last one in
-        // channelOrder is master; its post-FX/pan/vol audio is the output.
+      if (channel.sendsTo.length === 0) {
+        // Sink. By convention the last sink in channelOrder is master; its
+        // post-FX/pan/vol audio is the worklet's output.
         outStereo.set(fxOut.subarray(0, blockSize * 2));
+      } else {
+        for (let s = 0; s < channel.sendsTo.length; s++) {
+          const destId = channel.sendsTo[s]!;
+          const lvl = channel.sendsLevels?.[s] ?? 1;
+          const sendDest = this.getOrAllocBuffer(this.channelInputs, destId, blockSize);
+          if (lvl === 1) {
+            for (let i = 0; i < blockSize * 2; i++) sendDest[i]! += fxOut[i]!;
+          } else {
+            for (let i = 0; i < blockSize * 2; i++) sendDest[i]! += fxOut[i]! * lvl;
+          }
+        }
       }
     }
 

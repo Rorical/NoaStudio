@@ -25,8 +25,8 @@ function basicConfig(): RoutingConfig {
       { id: 't1', chainId: 't1', channelId: 'm1', mute: false, solo: false },
     ],
     channels: [
-      { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendTo: 'm0' },
-      { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendTo: null },
+      { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0'] },
+      { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendsTo: [] },
     ],
     channelOrder: ['m1', 'm0'],
   };
@@ -73,9 +73,9 @@ describe('MixerRouter — mute / solo', () => {
         { id: 't2', chainId: 't2', channelId: 'm2', mute: false, solo: true },
       ],
       channels: [
-        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendTo: 'm0' },
-        { id: 'm2', fxChainId: 'm2', vol: 1, pan: 0, mute: false, solo: false, sendTo: 'm0' },
-        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendTo: null },
+        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0'] },
+        { id: 'm2', fxChainId: 'm2', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0'] },
+        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendsTo: [] },
       ],
       channelOrder: ['m1', 'm2', 'm0'],
     });
@@ -97,8 +97,8 @@ describe('MixerRouter — multi-track sums', () => {
         { id: 't2', chainId: 't2', channelId: 'm1', mute: false, solo: false },
       ],
       channels: [
-        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendTo: 'm0' },
-        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendTo: null },
+        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0'] },
+        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendsTo: [] },
       ],
       channelOrder: ['m1', 'm0'],
     });
@@ -156,6 +156,51 @@ describe('MixerRouter — vol / pan', () => {
   });
 });
 
+describe('MixerRouter — multi-destination sends', () => {
+  it('a channel fans out to every destination in sendsTo', () => {
+    const router = new MixerRouter(8);
+    router.installChain('t1', new StubChain(0.4));
+    router.updateRouting({
+      tracks: [
+        { id: 't1', chainId: 't1', channelId: 'm1', mute: false, solo: false },
+      ],
+      channels: [
+        // m1 fans out to BOTH m0 (master) and mB (drum bus). Each gets 0.4.
+        // mB then sends to m0 — so m0 ends up with 0.4 (direct) + 0.4 (via mB) = 0.8.
+        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0', 'mB'] },
+        { id: 'mB', fxChainId: 'mB', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0'] },
+        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendsTo: [] },
+      ],
+      channelOrder: ['m1', 'mB', 'm0'],
+    });
+    const out = new Float32Array(16);
+    router.processBlock(8, out);
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.8, 5);
+  });
+
+  it('per-destination sendsLevels scale independently', () => {
+    const router = new MixerRouter(8);
+    router.installChain('t1', new StubChain(1.0));
+    router.updateRouting({
+      tracks: [
+        { id: 't1', chainId: 't1', channelId: 'm1', mute: false, solo: false },
+      ],
+      channels: [
+        // m1 → m0 at full, m1 → mR at half.
+        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false,
+          sendsTo: ['m0', 'mR'], sendsLevels: [1.0, 0.5] },
+        { id: 'mR', fxChainId: 'mR', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0'] },
+        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendsTo: [] },
+      ],
+      channelOrder: ['m1', 'mR', 'm0'],
+    });
+    const out = new Float32Array(16);
+    router.processBlock(8, out);
+    // m0 = 1.0 (direct) + 0.5 (via mR @ 0.5) = 1.5
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(1.5, 5);
+  });
+});
+
 describe('MixerRouter — sends + bus routing', () => {
   it('channels sending to a bus accumulate before the bus runs', () => {
     const router = new MixerRouter(8);
@@ -168,10 +213,10 @@ describe('MixerRouter — sends + bus routing', () => {
       ],
       channels: [
         // m1 + m2 → mB (drum bus) → m0
-        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendTo: 'mB' },
-        { id: 'm2', fxChainId: 'm2', vol: 1, pan: 0, mute: false, solo: false, sendTo: 'mB' },
-        { id: 'mB', fxChainId: 'mB', vol: 1, pan: 0, mute: false, solo: false, sendTo: 'm0' },
-        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendTo: null },
+        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['mB'] },
+        { id: 'm2', fxChainId: 'm2', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['mB'] },
+        { id: 'mB', fxChainId: 'mB', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0'] },
+        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendsTo: [] },
       ],
       channelOrder: ['m1', 'm2', 'mB', 'm0'],
     });

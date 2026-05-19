@@ -37,7 +37,7 @@ function buildRoutingConfig(tracks, channels) {
       pan: c.pan ?? 0,
       mute: !!c.mute,
       solo: !!c.solo,
-      sendTo: (c.sends && c.sends[0]) || null,
+      sendsTo: (c.sends ?? []).slice(),
     })),
     channelOrder: topoSortChannels(channels),
   };
@@ -45,23 +45,27 @@ function buildRoutingConfig(tracks, channels) {
 
 /**
  * Topological order over the channel send graph. Sources first, sinks last —
- * so master (no outgoing send) processes after every channel that feeds it.
+ * so master (no outgoing sends) processes after every channel that feeds it.
+ * Fan-out: a channel can send to several destinations; each contributes one
+ * incoming edge to its target.
  */
 function topoSortChannels(channels) {
   const ids = channels.map((c) => c.id);
-  const sendsTo = new Map(channels.map((c) => [c.id, (c.sends && c.sends[0]) || null]));
+  const idSet = new Set(ids);
   const inDeg = new Map(ids.map((id) => [id, 0]));
   for (const c of channels) {
-    const dest = c.sends && c.sends[0];
-    if (dest && inDeg.has(dest)) inDeg.set(dest, inDeg.get(dest) + 1);
+    for (const dest of c.sends ?? []) {
+      if (idSet.has(dest)) inDeg.set(dest, inDeg.get(dest) + 1);
+    }
   }
   const order = [];
   const queue = ids.filter((id) => inDeg.get(id) === 0);
   while (queue.length > 0) {
     const id = queue.shift();
     order.push(id);
-    const dest = sendsTo.get(id);
-    if (dest && inDeg.has(dest)) {
+    const c = channels.find((x) => x.id === id);
+    for (const dest of c?.sends ?? []) {
+      if (!idSet.has(dest)) continue;
       inDeg.set(dest, inDeg.get(dest) - 1);
       if (inDeg.get(dest) === 0) queue.push(dest);
     }
