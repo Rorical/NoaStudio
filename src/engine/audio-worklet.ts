@@ -3,6 +3,8 @@ import { RingBuffer } from './RingBuffer';
 import {
   EVENT_FRAME_SIZE,
   rewriteFrameOffset,
+  EVT_NOTE_ON, EVT_NOTE_OFF, EVT_PARAM_SET, EVT_TRANSPORT, EVT_TEMPO,
+  TRANSPORT_PLAY, TRANSPORT_STOP, TRANSPORT_PAUSE,
 } from './EngineEvent';
 import { PluginInstance } from './PluginInstance';
 import { PluginChain } from './PluginChain';
@@ -64,11 +66,21 @@ interface UpdateRoutingMessage {
   config: RoutingConfig;
 }
 
+interface SetLoopMessage {
+  type: 'SET_LOOP';
+  enabled: boolean;
+  startBeats: number;
+  endBeats: number;
+  bpm: number;
+  sampleRate: number;
+}
+
 type WorkletInbound =
   | InstantiateMessage
   | DestroyMessage
   | ApplyPresetStateMessage
-  | UpdateRoutingMessage;
+  | UpdateRoutingMessage
+  | SetLoopMessage;
 
 interface PendingEvent {
   sampleTime: number;
@@ -79,6 +91,7 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
   private readonly eventRing: RingBuffer;
   private readonly meterRing: RingBuffer;
   private readonly telemetry: Uint32Array;
+  private readonly telemetryF32: Float32Array;
   private readonly router = new MixerRouter(MAX_WORKLET_BLOCK);
   private readonly outBus = new Float32Array(MAX_WORKLET_BLOCK * 2);
   private readonly eventFrame = new Uint8Array(EVENT_FRAME_SIZE);
@@ -94,12 +107,22 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
   private sampleCounter = 0;
   private blockCounter = 0;
 
+  /** Transport state owned by the worklet (Phase 6b). */
+  private transportPlaying = false;
+  /** Playhead in samples — distinct from `sampleCounter` (audio-block tick). */
+  private playheadSamples = 0;
+  private bpm = 120;
+  private loopEnabled = false;
+  private loopStartSamples = 0;
+  private loopEndSamples = 0;
+
   constructor(options: AudioWorkletNodeOptions) {
     super();
     const p = options.processorOptions as NoaProcessorOptions;
     this.eventRing = new RingBuffer(p.eventSab);
     this.meterRing = new RingBuffer(p.meterSab);
     this.telemetry = new Uint32Array(p.telemetrySab);
+    this.telemetryF32 = new Float32Array(p.telemetrySab);
     this.eventFrameView = new DataView(
       this.eventFrame.buffer,
       this.eventFrame.byteOffset,
@@ -121,8 +144,19 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
         case 'UPDATE_ROUTING':
           this.router.updateRouting(m.config);
           break;
+        case 'SET_LOOP':
+          this.handleSetLoop(m);
+          break;
       }
     };
+  }
+
+  private handleSetLoop(m: SetLoopMessage): void {
+    this.loopEnabled = m.enabled;
+    this.bpm = m.bpm;
+    const samplesPerBeat = (m.sampleRate * 60) / m.bpm;
+    this.loopStartSamples = Math.round(m.startBeats * samplesPerBeat);
+    this.loopEndSamples = Math.round(m.endBeats * samplesPerBeat);
   }
 
   private getOrCreateChain(chainId: string): PluginChain {
@@ -210,7 +244,9 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
    * Dispatch every event whose sampleTime falls in the current block. Frames
    * scheduled in the past (sampleTime ≤ blockStart) fire at frameOffset 0;
    * frames in the future stay pending. Frames with sampleTime === 0 act as
-   * "fire immediately" and dispatch on the next process() call.
+   * "fire immediately" and dispatch on the next process() call. Transport /
+   * Tempo events update the worklet's internal transport state rather than
+   * routing through to a plugin.
    */
   private dispatchPending(blockStart: number, blockEnd: number): void {
     if (this.pending.length === 0) return;
@@ -220,17 +256,37 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     while (i < this.pending.length) {
       const ev = this.pending[i]!;
       if (ev.sampleTime >= blockEnd && ev.sampleTime !== 0) break;
-      const frameOffset = ev.sampleTime <= blockStart
-        ? 0
-        : ev.sampleTime - blockStart;
-      rewriteFrameOffset(ev.frame, frameOffset);
-      const targetId = new DataView(ev.frame.buffer, ev.frame.byteOffset, EVENT_FRAME_SIZE)
-        .getUint32(8, true);
-      this.router.queueEvent(targetId, ev.frame);
+      const view = new DataView(ev.frame.buffer, ev.frame.byteOffset, EVENT_FRAME_SIZE);
+      const type = view.getUint8(0);
+      if (type === EVT_TRANSPORT) {
+        const command = view.getUint8(8);
+        const positionBeats = view.getFloat64(16, true);
+        this.applyTransport(command, positionBeats);
+      } else if (type === EVT_TEMPO) {
+        this.bpm = view.getFloat32(8, true);
+      } else if (type === EVT_NOTE_ON || type === EVT_NOTE_OFF || type === EVT_PARAM_SET) {
+        const frameOffset = ev.sampleTime <= blockStart ? 0 : ev.sampleTime - blockStart;
+        rewriteFrameOffset(ev.frame, frameOffset);
+        const targetId = view.getUint32(8, true);
+        this.router.queueEvent(targetId, ev.frame);
+      }
       this.releaseFrame(ev.frame);
       i++;
     }
     if (i > 0) this.pending.splice(0, i);
+  }
+
+  private applyTransport(command: number, positionBeats: number): void {
+    if (command === TRANSPORT_PLAY) {
+      this.transportPlaying = true;
+      const samplesPerBeat = (sampleRate * 60) / this.bpm;
+      this.playheadSamples = Math.round(positionBeats * samplesPerBeat);
+    } else if (command === TRANSPORT_STOP) {
+      this.transportPlaying = false;
+      this.playheadSamples = 0;
+    } else if (command === TRANSPORT_PAUSE) {
+      this.transportPlaying = false;
+    }
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
@@ -248,14 +304,11 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     const outStereo = this.outBus.subarray(0, blockSize * 2);
     const meters = this.router.processBlock(blockSize, outStereo);
 
-    // De-interleave the stereo bus into the worklet's channels.
     for (let i = 0; i < blockSize; i++) {
       left[i] = outStereo[i * 2]!;
       if (right) right[i] = outStereo[i * 2 + 1]!;
     }
 
-    // Publish per-channel meters. Channel id is hashed to a u32 so the meter
-    // frame layout stays a flat 16 bytes.
     for (let i = 0; i < meters.length; i++) {
       const m = meters[i]!;
       this.meterView.setUint32(0, channelHash(m.channelId), true);
@@ -266,7 +319,21 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     }
 
     this.sampleCounter += blockSize;
-    Atomics.store(this.telemetry, 0, this.sampleCounter >>> 0);
+    if (this.transportPlaying) {
+      this.playheadSamples += blockSize;
+      if (this.loopEnabled
+          && this.loopEndSamples > this.loopStartSamples
+          && this.playheadSamples >= this.loopEndSamples) {
+        const overshoot = this.playheadSamples - this.loopEndSamples;
+        const loopLen = this.loopEndSamples - this.loopStartSamples;
+        this.playheadSamples = this.loopStartSamples + (overshoot % loopLen);
+      }
+    }
+    Atomics.store(this.telemetry, 0, this.playheadSamples >>> 0);
+    const samplesPerBeat = (sampleRate * 60) / this.bpm;
+    this.telemetryF32[1] = this.playheadSamples / samplesPerBeat;
+    Atomics.store(this.telemetry, 2, this.transportPlaying ? 1 : 0);
+    Atomics.store(this.telemetry, 3, this.blockCounter);
     this.blockCounter++;
     return true;
   }

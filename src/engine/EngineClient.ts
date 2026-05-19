@@ -33,6 +33,15 @@ const EVENT_RING_SLOTS = 1024;
 const METER_RING_SLOTS = 256;
 /** Per-instance worker matches the worklet's render quantum so allocations align. */
 const WORKER_MAX_BLOCK_SIZE = 128;
+/**
+ * Telemetry SAB layout — four 32-bit words:
+ *   [0] u32 — playheadSamples (low 32 bits)
+ *   [1] f32 — playheadBeats (float32 reinterpret)
+ *   [2] u32 — flags (bit 0 = playing)
+ *   [3] u32 — blockCounter
+ */
+const TELEMETRY_BYTES = 16;
+const TELEMETRY_PLAYING_BIT = 1;
 
 interface InstanceMeta {
   numericId: number;
@@ -58,9 +67,13 @@ export class EngineClient {
   private eventRing: RingBuffer | null = null;
   private meterRing: RingBuffer | null = null;
   private telemetry: Uint32Array | null = null;
+  private telemetryF32: Float32Array | null = null;
   private readonly instances = new Map<string, InstanceMeta>();
   /** Monotonic counter for EngineEvent.targetId. */
   private nextNumericId = 1;
+  /** Last tempo posted via setTempo — needed so setLoop can resolve sample
+   *  positions worklet-side. */
+  private currentBpm = 120;
   private readonly eventFrame = new Uint8Array(EVENT_FRAME_SIZE);
   private readonly meterFrame = new Uint8Array(METER_FRAME_SIZE);
   private readonly meterView = new DataView(this.meterFrame.buffer);
@@ -76,11 +89,12 @@ export class EngineClient {
 
     const eventLayout = allocRingBuffer(EVENT_RING_SLOTS, EVENT_FRAME_SIZE);
     const meterLayout = allocRingBuffer(METER_RING_SLOTS, METER_FRAME_SIZE);
-    const telemetrySab = new SharedArrayBuffer(4);
+    const telemetrySab = new SharedArrayBuffer(TELEMETRY_BYTES);
 
     this.eventRing = new RingBuffer(eventLayout.sab);
     this.meterRing = new RingBuffer(meterLayout.sab);
     this.telemetry = new Uint32Array(telemetrySab);
+    this.telemetryF32 = new Float32Array(telemetrySab);
 
     this.node = new AudioWorkletNode(this.ctx, 'noa-engine', {
       numberOfInputs: 0,
@@ -159,6 +173,7 @@ export class EngineClient {
   }
 
   setTempo(bpm: number): void {
+    this.currentBpm = bpm;
     this.sendEvent({ type: EVT_TEMPO, sampleTime: 0, bpm });
   }
 
@@ -227,6 +242,12 @@ export class EngineClient {
   /** Update the worklet's routing topology. Fire-and-forget. */
   updateRouting(config: RoutingConfig): void {
     this.protocol?.updateRouting(config);
+  }
+
+  /** Configure the worklet's loop region. */
+  setLoop(args: { enabled: boolean; startBeats: number; endBeats: number }): void {
+    if (!this.ctx) return;
+    this.protocol?.setLoop({ ...args, bpm: this.currentBpm, sampleRate: this.ctx.sampleRate });
   }
 
   /** Look up the engine-side numeric id used as `targetId` for events. */
@@ -302,6 +323,17 @@ export class EngineClient {
     return this.telemetry ? Atomics.load(this.telemetry, 0) >>> 0 : 0;
   }
 
+  /** Worklet-published playhead in beats. Driven by the transport state. */
+  playheadBeats(): number {
+    return this.telemetryF32 ? this.telemetryF32[1]! : 0;
+  }
+
+  /** Whether the worklet's transport is currently playing. */
+  isPlaying(): boolean {
+    if (!this.telemetry) return false;
+    return (Atomics.load(this.telemetry, 2) & TELEMETRY_PLAYING_BIT) !== 0;
+  }
+
   async dispose(): Promise<void> {
     for (const meta of this.instances.values()) {
       meta.pluginWorker.dispose();
@@ -317,6 +349,7 @@ export class EngineClient {
     this.eventRing = null;
     this.meterRing = null;
     this.telemetry = null;
+    this.telemetryF32 = null;
   }
 }
 

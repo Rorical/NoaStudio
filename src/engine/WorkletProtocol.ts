@@ -131,6 +131,16 @@ export class WorkletProtocol {
     this.port.postMessage({ type: 'UPDATE_ROUTING', config });
   }
 
+  /**
+   * Configure the worklet's loop region. The worklet pre-computes
+   * loopStart/EndSamples from `bpm` + `sampleRate` once on receipt; callers
+   * must re-send on BPM changes if they want the region to follow tempo.
+   */
+  setLoop(args: { enabled: boolean; startBeats: number; endBeats: number; bpm: number; sampleRate: number }): void {
+    if (this.disposed) return;
+    this.port.postMessage({ type: 'SET_LOOP', ...args });
+  }
+
   /** Reject every outstanding loadPlugin promise (used on EngineClient.dispose). */
   dispose(reason: Error = new Error('WorkletProtocol: disposed')): void {
     this.disposed = true;
