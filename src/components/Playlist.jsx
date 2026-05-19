@@ -8,7 +8,7 @@ const TRACK_H = 56;
 
 export default function Playlist({
   tracks, clips, selectedClipId, onSelectClip, onMoveClip, onOpenPianoRoll,
-  time, playing, onSetTime, onAssignGenerator,
+  time, playing, onSetTime, onAssignGenerator, onAddTrackEffect,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
 }) {
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -62,7 +62,16 @@ export default function Playlist({
     const plugin = e.dataTransfer.getData('plugin');
     if (plugin) {
       const p = JSON.parse(plugin);
-      if (p.kind === 'gen') onAssignGenerator(track.id, p);
+      // Hold Shift to insert as a track FX (post-generator, pre-channel).
+      // Otherwise drop a generator into the track's generator slot.
+      if (e.shiftKey && p.kind === 'fx') {
+        onAddTrackEffect?.(track.id, p);
+      } else if (p.kind === 'gen') {
+        onAssignGenerator(track.id, p);
+      } else if (p.kind === 'fx') {
+        // Convenience: drop an FX without Shift also adds as a track FX.
+        onAddTrackEffect?.(track.id, p);
+      }
     }
     setHoverTrack(null);
   };
@@ -103,6 +112,11 @@ export default function Playlist({
                       ? (lookup(t.generator.pluginId)?.name ?? t.generator.pluginId)
                       : (t.type === 'audio' ? 'Audio in' : 'No plugin')}
                   </span>
+                  {t.effects && t.effects.length > 0 && (
+                    <span className="track-fx-count mono" title={`${t.effects.length} track FX (drop an effect to add, Shift-drop to force)`}>
+                      <Icon name="tune" size={10} /> {t.effects.length}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="track-ctrls">

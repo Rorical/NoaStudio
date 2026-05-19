@@ -1250,6 +1250,19 @@
 }
 .send-empty { font-size: 11px; font-style: italic; }
 
+.track-fx-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 1px 5px;
+  background: var(--m3-surface-container-high);
+  color: var(--m3-on-surface-variant);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
 /* ===== STATUSBAR ===== */
 .statusbar {
   display: flex; align-items: center;

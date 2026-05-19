@@ -619,6 +619,16 @@ export default function App() {
     });
   }, [dispatch]);
 
+  const addTrackEffect = useCallback((trackId, plugin) => {
+    if (!plugin?.pluginId) return;
+    dispatch({
+      type: 'LOAD_PLUGIN',
+      pluginId: plugin.pluginId,
+      target: { kind: 'track-fx', trackId },
+      defaults: [],
+    });
+  }, [dispatch]);
+
   const addEffect = useCallback((channelId, plugin) => {
     if (!plugin?.pluginId) return;
     dispatch({
@@ -735,6 +745,7 @@ export default function App() {
               playing={playing}
               onSetTime={setTime}
               onAssignGenerator={assignGenerator}
+              onAddTrackEffect={addTrackEffect}
               pluginCatalog={pluginCatalog}
               trackColors={TRACK_COLORS}
               onMuteTrack={toggleTrackMute}
