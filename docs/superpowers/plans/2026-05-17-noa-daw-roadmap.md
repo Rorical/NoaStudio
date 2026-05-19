@@ -147,6 +147,10 @@
 
 ---
 
+## Phase 6c — Dynamic plugin lifecycle ✓ shipped 2026-05-19
+
+**Shipped:** App.jsx's one-shot boot effect collapses into a diff-sync that runs on every coordinator change. The "loaded" set tracks `{instanceId → (chainId, slot)}` in the engine; the "wanted" set is rebuilt from `tracks[].generator` + `channels[].effects` each render; missing entries trigger `engine.unloadInstance`, new entries trigger `engine.loadPlugin`, and (chainId, slot) mismatches (e.g. FX removed from the middle of a rack shifts later entries) treat as remove + add. The seed loads through the same diff on the effect's first run — no separate bootstrap. Drag-from-Browser onto a track header (Sine onto Bass) or the Mixer (Gain onto Master) now produces audible audio immediately; uninstalling an FX through the × button removes it from the engine cleanly while the surrounding chain keeps playing. Engine loading from OPFS remains deferred to a future 6d.
+
 ## Phase 6b — Engine-driven transport + multi-destination sends ✓ shipped 2026-05-19
 
 **Shipped:** Audio worklet now owns transport state — `playheadSamples`, `bpm`, `loopStart..End` — advances per block when playing, and wraps sample-accurately at the loop boundary. The telemetry SAB grew from 1×u32 to 4×u32 (`playheadSamples` / `playheadBeats` f32 / `flags` with playing bit / `blockCounter`). `EngineClient.playheadBeats()` + `isPlaying()` read the SAB; `setLoop({enabled, startBeats, endBeats})` posts a `SET_LOOP` envelope that pre-computes the loop region in samples once. `ChannelRouting.sendTo: string|null` becomes `sendsTo: string[]` + optional `sendsLevels: number[]` so a channel can fan out to master + every bus; `topoSortChannels` in App.jsx walks every destination. The App.jsx transport RAF reads `playheadBeats()` directly and drops the sample-delta math; loop-wrap detection watches for the playhead going backwards and re-anchors the ClipScheduler. 256 unit tests.

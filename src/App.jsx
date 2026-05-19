@@ -217,76 +217,93 @@ export default function App() {
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
   useEffect(() => { channelsRef.current = channels; }, [channels]);
 
-  // Boot the plugin chain once the engine is ready: load each instance in the
-  // coordinator project state, in slot order (track generators first, then
-  // channel FX racks in channel order).
+  // Load the built-in plugin registry once the engine is ready.
   useEffect(() => {
     if (!engineReady) return;
     let cancelled = false;
     (async () => {
-      const engine = engineRef.current;
-      if (!engine) return;
       try {
         const registry = await bootBuiltinRegistry();
         if (cancelled) return;
         registryRef.current = registry;
-
-        // Trigger the `pluginCatalog` memo to re-derive with hasUi populated.
-        if (!cancelled) setRegistryVersion((v) => v + 1);
-
-        const rings = new Map();
-
-        const loadOne = async (instance, chainId, slot) => {
-          if (!registry.has(instance.pluginId)) return;
-          const entry = registry.get(instance.pluginId);
-          const initialParams = instance.params.length > 0
-            ? instance.params
-            : entry.manifest.params.map((p) => p.default);
-          try {
-            const result = await engine.loadPlugin({
-              instanceId: instance.id,
-              chainId, slot,
-              wasm: entry.wasm,
-              manifest: entry.manifest,
-              initialParams,
-            });
-            rings.set(instance.id, {
-              paramRingSab: result.paramRingSab,
-              notifyRingSab: result.notifyRingSab,
-            });
-          } catch (err) {
-            console.error(`Plugin ${instance.pluginId} (${instance.id}) failed:`, err);
-          }
-        };
-
-        // Track generators: one chain per track, slot 0.
-        for (const track of tracksRef.current) {
-          if (cancelled) return;
-          if (track.generator) await loadOne(track.generator, track.id, 0);
-        }
-        // Channel FX racks: one chain per channel, slot 0..N.
-        for (const channel of channelsRef.current) {
-          for (let i = 0; i < channel.effects.length; i++) {
-            if (cancelled) return;
-            await loadOne(channel.effects[i], channel.id, i);
-          }
-        }
-
-        instanceRingsRef.current = rings;
-
-        // Push the initial routing config so audio flows.
-        engine.updateRouting(buildRoutingConfig(tracksRef.current, channelsRef.current));
-
-        // Second bump signals downstream effects (e.g. the ClipScheduler's
-        // setProject) that getNumericId now returns real values.
-        if (!cancelled) setRegistryVersion((v) => v + 1);
+        setRegistryVersion((v) => v + 1);
       } catch (err) {
-        console.error('Plugin boot failed:', err);
+        console.error('Registry load failed:', err);
       }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineReady]);
+
+  /**
+   * Plugin lifecycle diff-sync: every time the coordinator's instance set
+   * changes (track generator added/removed, FX inserted/removed/reordered),
+   * compute the diff against what's loaded in the engine and call
+   * loadPlugin / unloadInstance to reconcile. The seed's instances are loaded
+   * on this effect's first run too — there's no separate boot path.
+   */
+  const loadedInstancesRef = useRef(new Map()); // instanceId → { chainId, slot }
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    const registry = registryRef.current;
+    if (!engine || !registry) return;
+
+    // Build the "wanted" map from coordinator state.
+    const wanted = new Map();
+    for (const t of tracks) {
+      if (t.generator) wanted.set(t.generator.id, { instance: t.generator, chainId: t.id, slot: 0 });
+    }
+    for (const c of channels) {
+      c.effects.forEach((fx, slot) => {
+        wanted.set(fx.id, { instance: fx, chainId: c.id, slot });
+      });
+    }
+
+    // Unload anything the engine has but the coordinator no longer wants —
+    // or whose chainId/slot moved (treat as a remove + add).
+    const loaded = loadedInstancesRef.current;
+    for (const [id, meta] of [...loaded]) {
+      const target = wanted.get(id);
+      if (!target || target.chainId !== meta.chainId || target.slot !== meta.slot) {
+        engine.unloadInstance(id);
+        instanceRingsRef.current.delete(id);
+        loaded.delete(id);
+      }
+    }
+
+    // Load anything new. Optimistically mark loaded to dedupe concurrent re-runs.
+    let mounted = true;
+    for (const [id, target] of wanted) {
+      if (loaded.has(id)) continue;
+      if (!registry.has(target.instance.pluginId)) continue;
+      const entry = registry.get(target.instance.pluginId);
+      const initialParams = target.instance.params.length > 0
+        ? target.instance.params
+        : entry.manifest.params.map((p) => p.default);
+      loaded.set(id, { chainId: target.chainId, slot: target.slot });
+      engine.loadPlugin({
+        instanceId: id,
+        chainId: target.chainId,
+        slot: target.slot,
+        wasm: entry.wasm,
+        manifest: entry.manifest,
+        initialParams,
+      }).then((result) => {
+        if (!mounted) return;
+        instanceRingsRef.current.set(id, {
+          paramRingSab: result.paramRingSab,
+          notifyRingSab: result.notifyRingSab,
+        });
+        // Bump so dependent effects (ClipScheduler.setProject) re-run with
+        // the new numericId resolvable.
+        setRegistryVersion((v) => v + 1);
+      }).catch((err) => {
+        console.error(`Plugin ${target.instance.pluginId} (${id}) failed:`, err);
+        loaded.delete(id);
+      });
+    }
+    return () => { mounted = false; };
+  }, [engineReady, tracks, channels, registryVersion, engineRef]);
 
   // Re-sync the worklet's routing topology whenever tracks/channels change.
   // Fires after the boot effect because that's when the chains exist;
