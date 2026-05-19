@@ -32,6 +32,9 @@ export interface TrackRouting {
   channelId: string;
   mute: boolean;
   solo: boolean;
+  /** Per-track output gain applied before summing into the channel input
+   *  mix. Defaults to 1 when omitted. */
+  vol?: number;
 }
 
 export interface ChannelRouting {
@@ -136,7 +139,12 @@ export class MixerRouter {
       const scratch = this.getOrAllocBuffer(this.trackScratch, track.id, blockSize);
       chain.processBlock(blockSize, scratch);
       const dest = this.getOrAllocBuffer(this.channelInputs, track.channelId, blockSize);
-      for (let i = 0; i < blockSize * 2; i++) dest[i]! += scratch[i]!;
+      const gain = track.vol ?? 1;
+      if (gain === 1) {
+        for (let i = 0; i < blockSize * 2; i++) dest[i]! += scratch[i]!;
+      } else if (gain !== 0) {
+        for (let i = 0; i < blockSize * 2; i++) dest[i]! += scratch[i]! * gain;
+      }
     }
 
     this.meters.length = 0;

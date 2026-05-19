@@ -32,6 +32,7 @@ function buildRoutingConfig(tracks, channels) {
         channelId: 'm' + t.channel,
         mute: !!t.mute,
         solo: !!t.solo,
+        vol: t.vol ?? 1,
       })),
     channels: channels.map((c) => {
       const sendsTo = (c.sends ?? []).slice();

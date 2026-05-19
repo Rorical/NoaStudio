@@ -86,6 +86,48 @@ describe('MixerRouter — mute / solo', () => {
   });
 });
 
+describe('MixerRouter — track vol', () => {
+  it('per-track vol scales the track signal before it enters the channel mix', () => {
+    const router = new MixerRouter(8);
+    router.installChain('t1', new StubChain(1.0));
+    const cfg = basicConfig();
+    cfg.tracks[0]!.vol = 0.5;
+    router.updateRouting(cfg);
+    const out = new Float32Array(16);
+    router.processBlock(8, out);
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.5, 5);
+  });
+
+  it('two tracks with different vol sum at the channel', () => {
+    const router = new MixerRouter(8);
+    router.installChain('t1', new StubChain(1.0));
+    router.installChain('t2', new StubChain(1.0));
+    router.updateRouting({
+      tracks: [
+        { id: 't1', chainId: 't1', channelId: 'm1', mute: false, solo: false, vol: 0.2 },
+        { id: 't2', chainId: 't2', channelId: 'm1', mute: false, solo: false, vol: 0.3 },
+      ],
+      channels: [
+        { id: 'm1', fxChainId: 'm1', vol: 1, pan: 0, mute: false, solo: false, sendsTo: ['m0'] },
+        { id: 'm0', fxChainId: 'm0', vol: 1, pan: 0, mute: false, solo: false, sendsTo: [] },
+      ],
+      channelOrder: ['m1', 'm0'],
+    });
+    const out = new Float32Array(16);
+    router.processBlock(8, out);
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.5, 5);
+  });
+
+  it('vol omitted defaults to 1', () => {
+    const router = new MixerRouter(8);
+    router.installChain('t1', new StubChain(0.4));
+    router.updateRouting(basicConfig());
+    const out = new Float32Array(16);
+    router.processBlock(8, out);
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.4, 5);
+  });
+});
+
 describe('MixerRouter — multi-track sums', () => {
   it('two tracks into one channel sum at the channel', () => {
     const router = new MixerRouter(8);
