@@ -7,7 +7,7 @@ export const TOTAL_BEATS = 32 * BAR_BEATS;
 const TRACK_H = 56;
 
 export default function Playlist({
-  tracks, clips, selectedClipId, onSelectClip, onMoveClip, onOpenPianoRoll,
+  tracks, clips, selectedClipId, onSelectClip, onMoveClip, onResizeClip, onOpenPianoRoll,
   time, playing, onSetTime, onAssignGenerator, onAddTrackEffect,
   onRemoveTrackEffect, onReorderTrackEffect,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
@@ -31,18 +31,33 @@ export default function Playlist({
   const onClipMouseDown = (e, clip) => {
     e.stopPropagation();
     onSelectClip(clip.id);
-    setDrag({ id: clip.id, startX: e.clientX, origStart: clip.start, lastDelta: 0 });
+    setDrag({ kind: 'move', id: clip.id, startX: e.clientX, orig: clip.start, last: 0 });
+  };
+
+  const onClipResizeMouseDown = (e, clip) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelectClip(clip.id);
+    setDrag({ kind: 'resize', id: clip.id, startX: e.clientX, orig: clip.length, last: clip.length });
   };
 
   useEffect(() => {
     if (!drag) return;
     const handleMove = (e) => {
       const dx = e.clientX - drag.startX;
-      const deltaBeats = Math.round((dx / BEAT_PX) * 2) / 2;
-      const newStart = Math.max(0, drag.origStart + deltaBeats);
-      if (newStart !== drag.lastDelta) {
-        onMoveClip(drag.id, newStart);
-        setDrag((d) => ({ ...d, lastDelta: newStart }));
+      const deltaBeats = Math.round((dx / BEAT_PX) * 4) / 4; // snap to quarter-beat
+      if (drag.kind === 'move') {
+        const newStart = Math.max(0, drag.orig + deltaBeats);
+        if (newStart !== drag.last) {
+          onMoveClip(drag.id, newStart);
+          setDrag((d) => ({ ...d, last: newStart }));
+        }
+      } else if (drag.kind === 'resize') {
+        const newLength = Math.max(0.25, drag.orig + deltaBeats);
+        if (newLength !== drag.last) {
+          onResizeClip?.(drag.id, newLength);
+          setDrag((d) => ({ ...d, last: newLength }));
+        }
       }
     };
     const handleUp = () => setDrag(null);
@@ -52,7 +67,7 @@ export default function Playlist({
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [drag, onMoveClip]);
+  }, [drag, onMoveClip, onResizeClip]);
 
   const onRulerClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -214,6 +229,7 @@ export default function Playlist({
                     height={TRACK_H - 6}
                     selected={isSel}
                     onMouseDown={(e) => onClipMouseDown(e, clip)}
+                    onResizeMouseDown={(e) => onClipResizeMouseDown(e, clip)}
                     onDoubleClick={() => clip.pattern && onOpenPianoRoll(clip.id)}
                   />
                 );
@@ -230,7 +246,7 @@ export default function Playlist({
   );
 }
 
-function ClipView({ clip, color, top, height, selected, onMouseDown, onDoubleClick }) {
+function ClipView({ clip, color, top, height, selected, onMouseDown, onResizeMouseDown, onDoubleClick }) {
   const w = clip.length * BEAT_PX;
   const x = clip.start * BEAT_PX;
 
@@ -250,6 +266,11 @@ function ClipView({ clip, color, top, height, selected, onMouseDown, onDoubleCli
           ? <ClipWaveform width={w} height={height - 16} />
           : <ClipMidiPreview pattern={clip.pattern} length={clip.length} width={w} height={height - 16} />}
       </div>
+      <div
+        className="clip-resize"
+        onMouseDown={onResizeMouseDown}
+        title="Drag to resize"
+      />
     </div>
   );
 }

@@ -648,6 +648,19 @@
   user-select: none;
 }
 .clip:hover { border-color: var(--track); box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
+.clip-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 1;
+}
+.clip-resize:hover {
+  background: color-mix(in oklab, var(--track) 40%, transparent);
+}
 .clip.selected {
   border-color: var(--track);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--track) 50%, transparent), 0 2px 6px rgba(0,0,0,0.35);

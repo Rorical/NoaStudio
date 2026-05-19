@@ -37,6 +37,39 @@ describe('reducer — clips', () => {
     const [s2] = run(s0, { type: 'UPDATE_CLIP_LENGTH', clipId: 'c1', length: orig + 4 });
     expect(s2.clips.find((c) => c.id === 'c1')!.length).toBe(orig + 4);
   });
+
+  it('SET_CLIP_LENGTH supports both growing and shrinking', () => {
+    const s0 = seedProject();
+    const c1 = s0.clips.find((c) => c.id === 'c1')!;
+    const orig = c1.length;
+    const [s1] = run(s0, { type: 'SET_CLIP_LENGTH', clipId: 'c1', length: orig + 4 });
+    expect(s1.clips.find((c) => c.id === 'c1')!.length).toBe(orig + 4);
+    const [s2] = run(s1, { type: 'SET_CLIP_LENGTH', clipId: 'c1', length: 1 });
+    expect(s2.clips.find((c) => c.id === 'c1')!.length).toBe(1);
+  });
+
+  it('SET_CLIP_LENGTH clamps to a minimum of 0.25 beats', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'SET_CLIP_LENGTH', clipId: 'c1', length: 0 });
+    expect(s1.clips.find((c) => c.id === 'c1')!.length).toBe(0.25);
+    const [s2] = run(s0, { type: 'SET_CLIP_LENGTH', clipId: 'c1', length: -5 });
+    expect(s2.clips.find((c) => c.id === 'c1')!.length).toBe(0.25);
+  });
+
+  it('SET_CLIP_LENGTH is a no-op when the length is unchanged', () => {
+    const s0 = seedProject();
+    const c1 = s0.clips.find((c) => c.id === 'c1')!;
+    const [s1, patches] = run(s0, { type: 'SET_CLIP_LENGTH', clipId: 'c1', length: c1.length });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('SET_CLIP_LENGTH on unknown clip is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'SET_CLIP_LENGTH', clipId: 'cZZ', length: 8 });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
 });
 
 describe('reducer — tracks (with channel cascade)', () => {

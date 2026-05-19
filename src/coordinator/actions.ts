@@ -2,6 +2,7 @@ export type Action =
   | { type: 'MOVE_CLIP'; clipId: string; start: number }
   | { type: 'UPDATE_CLIP_NOTES'; clipId: string; notes: [number, number, number][] }
   | { type: 'UPDATE_CLIP_LENGTH'; clipId: string; length: number }
+  | { type: 'SET_CLIP_LENGTH'; clipId: string; length: number }
   | { type: 'TOGGLE_TRACK_MUTE'; trackId: string }
   | { type: 'TOGGLE_TRACK_SOLO'; trackId: string }
   | {

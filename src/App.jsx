@@ -786,6 +786,7 @@ export default function App() {
               onAddTrackEffect={addTrackEffect}
               onRemoveTrackEffect={removeTrackEffect}
               onReorderTrackEffect={reorderTrackEffect}
+              onResizeClip={(id, length) => dispatch({ type: 'SET_CLIP_LENGTH', clipId: id, length })}
               pluginCatalog={pluginCatalog}
               trackColors={TRACK_COLORS}
               onMuteTrack={toggleTrackMute}

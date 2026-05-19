@@ -47,6 +47,14 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         if (c && action.length > c.length) c.length = action.length;
         return;
       }
+      case 'SET_CLIP_LENGTH': {
+        const c = draft.clips.find((x) => x.id === action.clipId);
+        if (!c) return;
+        const len = Math.max(0.25, action.length);
+        if (len === c.length) return;
+        c.length = len;
+        return;
+      }
       case 'TOGGLE_TRACK_MUTE': {
         const t = draft.tracks.find((x) => x.id === action.trackId);
         if (!t) return;
