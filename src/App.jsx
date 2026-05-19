@@ -40,6 +40,7 @@ export default function App() {
   const { canUndo, canRedo, undo, redo } = useUndoRedo();
   const [selectedClipId, setSelectedClipId] = useState('c20');
   const [selectedChannelId, setSelectedChannelId] = useState('m6');
+  const [selectedTrackId, setSelectedTrackId] = useState('t1');
   const [openClipId, setOpenClipId] = useState('c20');
 
   const [playing, setPlaying] = useState(false);
@@ -473,6 +474,8 @@ export default function App() {
   const stopRef = useRef(null);
   const selectedClipIdRef = useRef(null);
   useEffect(() => { selectedClipIdRef.current = selectedClipId; }, [selectedClipId]);
+  const selectedTrackIdRef = useRef(null);
+  useEffect(() => { selectedTrackIdRef.current = selectedTrackId; }, [selectedTrackId]);
   useEffect(() => {
     const onKey = (e) => {
       const tag = (e.target instanceof HTMLElement) ? e.target.tagName : '';
@@ -507,6 +510,12 @@ export default function App() {
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedClipIdRef.current) {
         e.preventDefault();
         dispatch({ type: 'DELETE_CLIP', clipId: selectedClipIdRef.current });
+      } else if ((e.key === 'm' || e.key === 'M') && selectedTrackIdRef.current) {
+        e.preventDefault();
+        dispatch({ type: 'TOGGLE_TRACK_MUTE', trackId: selectedTrackIdRef.current });
+      } else if ((e.key === 's' || e.key === 'S') && selectedTrackIdRef.current) {
+        e.preventDefault();
+        dispatch({ type: 'TOGGLE_TRACK_SOLO', trackId: selectedTrackIdRef.current });
       }
     };
     window.addEventListener('keydown', onKey);
@@ -796,6 +805,8 @@ export default function App() {
               onRemoveTrackEffect={removeTrackEffect}
               onReorderTrackEffect={reorderTrackEffect}
               onResizeClip={(id, length) => dispatch({ type: 'SET_CLIP_LENGTH', clipId: id, length })}
+              selectedTrackId={selectedTrackId}
+              onSelectTrack={setSelectedTrackId}
               pluginCatalog={pluginCatalog}
               trackColors={TRACK_COLORS}
               onMuteTrack={toggleTrackMute}

@@ -533,6 +533,10 @@
 }
 .track-header:hover { background: color-mix(in oklab, var(--m3-on-surface) 4%, transparent); }
 .track-header.drop { background: color-mix(in oklab, var(--m3-primary) 20%, transparent); }
+.track-header.selected {
+  background: color-mix(in oklab, var(--track) 14%, transparent);
+  border-left-color: var(--track);
+}
 .track-color-bar { background: var(--track); height: 100%; min-height: 100%; border-radius: 0 2px 2px 0; }
 .track-num {
   font-size: 11px;

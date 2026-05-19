@@ -10,6 +10,7 @@ export default function Playlist({
   tracks, clips, selectedClipId, onSelectClip, onMoveClip, onResizeClip, onOpenPianoRoll,
   time, playing, onSetTime, onAssignGenerator, onAddTrackEffect,
   onRemoveTrackEffect, onReorderTrackEffect,
+  selectedTrackId, onSelectTrack,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
 }) {
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -113,8 +114,9 @@ export default function Playlist({
           {tracks.map((t, i) => (
             <div
               key={t.id}
-              className={`track-header track-color-${t.color} ${hoverTrack === t.id ? 'drop' : ''}`}
+              className={`track-header track-color-${t.color} ${hoverTrack === t.id ? 'drop' : ''} ${selectedTrackId === t.id ? 'selected' : ''}`}
               style={{ '--track': trackColors[t.color], height: TRACK_H }}
+              onClick={() => onSelectTrack?.(t.id)}
               onDragOver={(e) => { e.preventDefault(); setHoverTrack(t.id); }}
               onDragLeave={() => setHoverTrack(null)}
               onDrop={(e) => onTrackDrop(e, t)}
