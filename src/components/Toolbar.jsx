@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
 
+function formatSnap(beats) {
+  if (!beats || beats <= 0) return 'OFF';
+  if (beats === 0.25) return '1/4';
+  if (beats === 0.5) return '1/2';
+  if (beats === 1) return '1';
+  if (beats === 4) return '4 BAR';
+  return beats.toString();
+}
+
 export default function Toolbar({
   playing, onPlay, onStop, onRecord, recording, loop, onLoop,
   metronome, onMetronome, bpm, onBpm, time, timeSig, projectName, masterLevels,
-  masterVol, onMasterVol,
+  masterVol, onMasterVol, snapBeats, onCycleSnap,
   view, onView, browserOpen, onToggleBrowser, pianoOpen, onTogglePiano,
   onOpenTweaks, onUndo, onRedo, canUndo, canRedo,
 }) {
@@ -127,6 +136,16 @@ export default function Toolbar({
           <div className="meta-label">KEY</div>
           <div className="meta-value mono">C min</div>
         </div>
+        {onCycleSnap && (
+          <button
+            className="meta-tile meta-tile-button"
+            onClick={onCycleSnap}
+            title="Cycle snap: off → 1/4 → 1/2 → 1 → 4 bar"
+          >
+            <span className="meta-label">SNAP</span>
+            <span className="meta-value mono">{formatSnap(snapBeats)}</span>
+          </button>
+        )}
       </div>
 
       <div className="toolbar-spacer">

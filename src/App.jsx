@@ -466,6 +466,9 @@ export default function App() {
   const [view, setView] = useState('tracks');
   const [browserOpen, setBrowserOpen] = useState(true);
   const [pianoOpen, setPianoOpen] = useState(true);
+  // Clip drag/resize snap — UI-local preference, not part of project state.
+  // 0 = off (continuous), positive = snap factor in beats.
+  const [snapBeats, setSnapBeats] = useState(0.25);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -782,6 +785,15 @@ export default function App() {
         masterLevels={masterLevels}
         masterVol={channels.find((c) => c.id === 'm0')?.vol ?? 1}
         onMasterVol={(v) => dispatch({ type: 'SET_FADER', channelId: 'm0', value: v })}
+        snapBeats={snapBeats}
+        onCycleSnap={() => setSnapBeats((s) => {
+          // off → 1/4 → 1/2 → 1 → 4 → off
+          if (s === 0) return 0.25;
+          if (s === 0.25) return 0.5;
+          if (s === 0.5) return 1;
+          if (s === 1) return 4;
+          return 0;
+        })}
         onPlay={handlePlay}
         onStop={handleStop}
         onRecord={handleRecord}
@@ -834,6 +846,7 @@ export default function App() {
               onDuplicateClip={(id) => dispatch({ type: 'DUPLICATE_CLIP', clipId: id })}
               selectedTrackId={selectedTrackId}
               onSelectTrack={setSelectedTrackId}
+              snapBeats={snapBeats}
               pluginCatalog={pluginCatalog}
               trackColors={TRACK_COLORS}
               onMuteTrack={toggleTrackMute}

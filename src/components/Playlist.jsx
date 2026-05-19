@@ -10,7 +10,7 @@ export default function Playlist({
   tracks, clips, selectedClipId, onSelectClip, onMoveClip, onResizeClip, onDuplicateClip, onOpenPianoRoll,
   time, playing, onSetTime, onAssignGenerator, onAddTrackEffect,
   onRemoveTrackEffect, onReorderTrackEffect,
-  selectedTrackId, onSelectTrack,
+  selectedTrackId, onSelectTrack, snapBeats = 0.25,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
 }) {
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -52,7 +52,11 @@ export default function Playlist({
     if (!drag) return;
     const handleMove = (e) => {
       const dx = e.clientX - drag.startX;
-      const deltaBeats = Math.round((dx / BEAT_PX) * 4) / 4; // snap to quarter-beat
+      const rawBeats = dx / BEAT_PX;
+      // snapBeats=0 means continuous; positive value quantizes to that grid.
+      const deltaBeats = snapBeats > 0
+        ? Math.round(rawBeats / snapBeats) * snapBeats
+        : rawBeats;
       if (drag.kind === 'move') {
         const newStart = Math.max(0, drag.orig + deltaBeats);
         if (newStart !== drag.last) {
@@ -74,7 +78,7 @@ export default function Playlist({
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [drag, onMoveClip, onResizeClip]);
+  }, [drag, onMoveClip, onResizeClip, snapBeats]);
 
   const onRulerClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();

@@ -155,6 +155,11 @@
   white-space: nowrap;
 }
 .meta-tile:hover { background: var(--m3-surface-container-high); }
+.meta-tile-button {
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
 .meta-label {
   font-size: 9px;
   font-weight: 600;
