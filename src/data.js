@@ -1,20 +1,33 @@
 export const TRACK_COLORS = ['#ff6b9d', '#ffb84d', '#ffe45c', '#5ce2a0', '#5cc8ff', '#b8a4ff', '#ff8ad6', '#ff7a6e'];
 
-// Phase 3 demo: only entries referencing real loadable plugins survive.
-// `generator: null` everywhere except t1, which gets a com.noa.sine instance.
-// `params: []` is the "needs hydration" placeholder; the engine boot fills it
-// with the plugin manifest's defaults once registered.
+// Demo seed: every MIDI track ships with a com.noa.sine generator so hitting
+// Play produces the full song. Octaves are picked to roughly place each
+// track in its expected register (bass low, lead/arp high). The Vox track
+// (t8) is `type: 'audio'` and stays generator-less until Phase 7's sampler.
+//
+// `params: [volume, octave]` matches com.noa.sine's manifest order.
 export const DEMO_TRACKS = [
   { id: 't1', name: 'Kick',  type: 'midi',  color: 0,
-    // Params match com.noa.sine's manifest defaults: Volume=0.5, Octave=0.
-    generator: { id: 'i_sine', pluginId: 'com.noa.sine', bypass: false, params: [0.5, 0] },
+    generator: { id: 'i_kick',  pluginId: 'com.noa.sine', bypass: false, params: [0.5, 0] },
     channel: 1, mute: false, solo: false, vol: 0.82 },
-  { id: 't2', name: 'Snare', type: 'midi',  color: 1, generator: null, channel: 2, mute: false, solo: false, vol: 0.74 },
-  { id: 't3', name: 'Hats',  type: 'midi',  color: 2, generator: null, channel: 3, mute: false, solo: false, vol: 0.62 },
-  { id: 't4', name: 'Bass',  type: 'midi',  color: 3, generator: null, channel: 4, mute: false, solo: false, vol: 0.78 },
-  { id: 't5', name: 'Pad',   type: 'midi',  color: 4, generator: null, channel: 5, mute: false, solo: false, vol: 0.55 },
-  { id: 't6', name: 'Lead',  type: 'midi',  color: 5, generator: null, channel: 6, mute: false, solo: false, vol: 0.68 },
-  { id: 't7', name: 'Arp',   type: 'midi',  color: 6, generator: null, channel: 7, mute: false, solo: false, vol: 0.58 },
+  { id: 't2', name: 'Snare', type: 'midi',  color: 1,
+    generator: { id: 'i_snare', pluginId: 'com.noa.sine', bypass: false, params: [0.45, 1] },
+    channel: 2, mute: false, solo: false, vol: 0.74 },
+  { id: 't3', name: 'Hats',  type: 'midi',  color: 2,
+    generator: { id: 'i_hats',  pluginId: 'com.noa.sine', bypass: false, params: [0.30, 2] },
+    channel: 3, mute: false, solo: false, vol: 0.62 },
+  { id: 't4', name: 'Bass',  type: 'midi',  color: 3,
+    generator: { id: 'i_bass',  pluginId: 'com.noa.sine', bypass: false, params: [0.55, 0] },
+    channel: 4, mute: false, solo: false, vol: 0.78 },
+  { id: 't5', name: 'Pad',   type: 'midi',  color: 4,
+    generator: { id: 'i_pad',   pluginId: 'com.noa.sine', bypass: false, params: [0.30, 1] },
+    channel: 5, mute: false, solo: false, vol: 0.55 },
+  { id: 't6', name: 'Lead',  type: 'midi',  color: 5,
+    generator: { id: 'i_lead',  pluginId: 'com.noa.sine', bypass: false, params: [0.45, 2] },
+    channel: 6, mute: false, solo: false, vol: 0.68 },
+  { id: 't7', name: 'Arp',   type: 'midi',  color: 6,
+    generator: { id: 'i_arp',   pluginId: 'com.noa.sine', bypass: false, params: [0.40, 2] },
+    channel: 7, mute: false, solo: false, vol: 0.58 },
   { id: 't8', name: 'Vox',   type: 'audio', color: 7, generator: null, channel: 8, mute: false, solo: false, vol: 0.72 },
 ];
 
