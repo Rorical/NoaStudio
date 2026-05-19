@@ -210,6 +210,56 @@ describe('ClipScheduler — track filtering', () => {
   });
 });
 
+describe('ClipScheduler — stop releases ringing notes', () => {
+  it('emits an immediate NoteOff for any note whose offSampleTime is still in the future', () => {
+    const { sched, events, setSample } = makeScheduler({
+      lookaheadSamples: SAMPLES_PER_BEAT * 2,
+    });
+    sched.setProject({
+      bpm: BPM,
+      tracks: [{ id: 't1', mute: false, solo: false, generatorNumericId: 9 }],
+      // Single long note: onset beat 0, length 4 beats → NoteOff at sample 4*samplesPerBeat
+      clips: [{ trackId: 't1', start: 0, length: 4, pattern: { notes: [[0, 60, 4]] } }],
+    });
+    sched.start({ startSample: 0, startBeat: 0 });
+    setSample(0);
+    sched.tick();
+    const onsBefore = decode(events).filter((e) => e.type === EVT_NOTE_ON).length;
+    const offsBefore = decode(events).filter((e) => e.type === EVT_NOTE_OFF).length;
+    expect(onsBefore).toBe(1);
+    expect(offsBefore).toBe(1); // the paired (future) NoteOff
+    // Stop mid-note (well before the paired NoteOff's sample time).
+    setSample(SAMPLES_PER_BEAT); // beat 1, NoteOff is at beat 4
+    sched.stop();
+    const offsAfter = decode(events).filter((e) => e.type === EVT_NOTE_OFF);
+    expect(offsAfter).toHaveLength(2); // the original future one + the immediate panic
+    // The new NoteOff has sampleTime 0 ("fire immediately").
+    expect(offsAfter[1]!.sampleTime).toBe(0);
+    expect(offsAfter[1]!.note).toBe(60);
+    expect(offsAfter[1]!.targetId).toBe(9);
+  });
+
+  it('emits no extra NoteOff when the paired NoteOff has already passed', () => {
+    const { sched, events, setSample } = makeScheduler({
+      lookaheadSamples: SAMPLES_PER_BEAT * 2,
+    });
+    sched.setProject({
+      bpm: BPM,
+      tracks: [{ id: 't1', mute: false, solo: false, generatorNumericId: 9 }],
+      clips: [{ trackId: 't1', start: 0, length: 4, pattern: { notes: [[0, 60, 0.5]] } }],
+    });
+    sched.start({ startSample: 0, startBeat: 0 });
+    setSample(0);
+    sched.tick();
+    const offsBefore = decode(events).filter((e) => e.type === EVT_NOTE_OFF).length;
+    // Stop AFTER the NoteOff would have fired (sample 0.5 × samplesPerBeat).
+    setSample(SAMPLES_PER_BEAT);
+    sched.stop();
+    const offsAfter = decode(events).filter((e) => e.type === EVT_NOTE_OFF);
+    expect(offsAfter).toHaveLength(offsBefore); // no extras
+  });
+});
+
 describe('ClipScheduler — reset (loop wrap)', () => {
   it('reset re-schedules notes from a given beat', () => {
     const { sched, events, setSample } = makeScheduler({

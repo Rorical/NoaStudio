@@ -47,6 +47,14 @@ export interface ClipSchedulerProject {
   clips: ClipSchedulerClip[];
 }
 
+interface ActiveNote {
+  targetId: number;
+  note: number;
+  channel: number;
+  /** Engine sample-time at which this note's paired NoteOff was scheduled. */
+  offSampleTime: number;
+}
+
 export class ClipScheduler {
   private project: ClipSchedulerProject | null = null;
   private running = false;
@@ -56,6 +64,10 @@ export class ClipScheduler {
   private startBeat = 0;
   /** Earliest beat not yet scheduled. */
   private cursorBeat = 0;
+  /** Notes whose paired NoteOff is still in the future. Used by `stop()` to
+   *  release ringing voices immediately instead of waiting for the queued
+   *  NoteOff to fire. */
+  private active: ActiveNote[] = [];
   /** Reusable frame buffer to avoid per-event allocs on the main thread. */
   private readonly frame = new Uint8Array(EVENT_FRAME_SIZE);
 
@@ -72,8 +84,24 @@ export class ClipScheduler {
     this.running = true;
   }
 
+  /**
+   * Stop scheduling new events and immediately release every still-ringing
+   * note by emitting an extra NoteOff (sampleTime: 0). The original paired
+   * NoteOff is left in the engine ring — when it eventually fires it's a
+   * no-op (releasing an already-released voice).
+   */
   stop(): void {
     this.running = false;
+    const currentSample = this.deps.readCurrentSample();
+    for (const a of this.active) {
+      if (a.offSampleTime <= currentSample) continue;
+      encodeEvent({
+        type: EVT_NOTE_OFF, sampleTime: 0,
+        targetId: a.targetId, note: a.note, channel: a.channel,
+      }, this.frame);
+      this.deps.pushEvent(this.frame);
+    }
+    this.active = [];
   }
 
   /** Re-anchor the scheduler after a loop wrap. */
@@ -81,6 +109,11 @@ export class ClipScheduler {
     this.startSample = args.startSample;
     this.startBeat = args.startBeat;
     this.cursorBeat = args.startBeat;
+    // Notes that hadn't released yet may have their paired NoteOff queued
+    // before the new anchor — let them fire on the engine clock as-is.
+    // Just prune the local active list relative to current sample.
+    const currentSample = this.deps.readCurrentSample();
+    this.active = this.active.filter((a) => a.offSampleTime > currentSample);
   }
 
   tick(): void {
@@ -91,6 +124,11 @@ export class ClipScheduler {
     const currentSample = this.deps.readCurrentSample();
     const currentBeat = (currentSample - this.startSample) / samplesPerBeat + this.startBeat;
     const horizonBeat = currentBeat + lookaheadBeats;
+
+    // Prune notes whose NoteOff has already fired on the engine clock.
+    if (this.active.length > 0) {
+      this.active = this.active.filter((a) => a.offSampleTime > currentSample);
+    }
 
     if (horizonBeat <= this.cursorBeat) return;
 
@@ -119,6 +157,9 @@ export class ClipScheduler {
           );
           this.emitNoteOn(targetId, pitch, onsetSample);
           this.emitNoteOff(targetId, pitch, offsetSample);
+          this.active.push({
+            targetId, note: pitch, channel: 0, offSampleTime: offsetSample,
+          });
         }
       }
     }
