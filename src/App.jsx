@@ -469,12 +469,28 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  const playRef = useRef(null);
   useEffect(() => {
     const onKey = (e) => {
+      // Skip when the user is editing a form field — Space typing into an
+      // input shouldn't toggle transport, Cmd+Z in an input should undo text.
+      const tag = (e.target instanceof HTMLElement) ? e.target.tagName : '';
+      const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+        || (e.target instanceof HTMLElement && e.target.isContentEditable);
+      if (isEditing) return;
+
       const cmd = e.ctrlKey || e.metaKey;
-      if (!cmd) return;
-      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-      else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo(); }
+      if (cmd) {
+        if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+        else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo(); }
+        return;
+      }
+      // Space toggles play/stop — DAW convention. preventDefault suppresses
+      // the page scroll the browser would otherwise do.
+      if (e.code === 'Space') {
+        e.preventDefault();
+        playRef.current?.();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -584,6 +600,9 @@ export default function App() {
       return next;
     });
   }, [engineRef, time]);
+  // Keep a stable ref to handlePlay so the keydown effect doesn't have to
+  // re-bind whenever `time` changes.
+  useEffect(() => { playRef.current = handlePlay; }, [handlePlay]);
 
   const handleStop = useCallback(() => {
     setPlaying(false);
