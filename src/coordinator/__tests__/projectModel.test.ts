@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { seedProject, type Project } from '../projectModel';
+import {
+  seedProject, isProjectCompatible, CURRENT_SCHEMA_VERSION, type Project,
+} from '../projectModel';
 
 describe('seedProject', () => {
   it('returns a Project with non-empty arrays', () => {
@@ -45,5 +47,50 @@ describe('seedProject', () => {
     expect(a).toEqual(b);
     expect(a).not.toBe(b);
     expect(a.tracks).not.toBe(b.tracks);
+  });
+
+  it('stamps the current schema version', () => {
+    expect(seedProject().schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  });
+});
+
+describe('isProjectCompatible', () => {
+  it('accepts a freshly-seeded project', () => {
+    expect(isProjectCompatible(seedProject())).toBe(true);
+  });
+
+  it('rejects null, undefined, primitives', () => {
+    expect(isProjectCompatible(null)).toBe(false);
+    expect(isProjectCompatible(undefined)).toBe(false);
+    expect(isProjectCompatible(42)).toBe(false);
+    expect(isProjectCompatible('hi')).toBe(false);
+  });
+
+  it('rejects projects with the wrong schema version', () => {
+    const p = seedProject();
+    p.schemaVersion = CURRENT_SCHEMA_VERSION - 1;
+    expect(isProjectCompatible(p)).toBe(false);
+    p.schemaVersion = CURRENT_SCHEMA_VERSION + 99;
+    expect(isProjectCompatible(p)).toBe(false);
+  });
+
+  it('rejects projects that have no schemaVersion at all (pre-versioning state)', () => {
+    const p: Partial<Project> = { ...seedProject() };
+    delete (p as { schemaVersion?: number }).schemaVersion;
+    expect(isProjectCompatible(p)).toBe(false);
+  });
+
+  it('rejects projects missing load-bearing arrays', () => {
+    const p = seedProject();
+    // @ts-expect-error simulating a broken save
+    delete p.installedPlugins;
+    expect(isProjectCompatible(p)).toBe(false);
+  });
+
+  it('rejects projects with a non-number bpm', () => {
+    const p = seedProject();
+    // @ts-expect-error simulating a broken save
+    p.bpm = 'fast';
+    expect(isProjectCompatible(p)).toBe(false);
   });
 });

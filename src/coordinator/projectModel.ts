@@ -71,7 +71,16 @@ export interface InstalledPlugin {
   kind: 'gen' | 'fx';
 }
 
+/**
+ * Project schema version. Bump on every breaking field change. Persisted
+ * Projects whose `schemaVersion` doesn't match the current value are
+ * discarded by the coordinator on load (a future migration pass can run
+ * here instead).
+ */
+export const CURRENT_SCHEMA_VERSION = 1;
+
 export interface Project {
+  schemaVersion: number;
   tracks: Track[];
   clips: Clip[];
   channels: Channel[];
@@ -81,6 +90,23 @@ export interface Project {
   installedPlugins: InstalledPlugin[];
 }
 
+/**
+ * Structural compatibility check for a freshly-loaded persisted Project. A
+ * Project is compatible when its `schemaVersion` matches the current
+ * version and the load-bearing top-level arrays exist. Returning `false`
+ * means the coordinator drops the saved state and re-seeds.
+ */
+export function isProjectCompatible(p: unknown): p is Project {
+  if (!p || typeof p !== 'object') return false;
+  const o = p as Record<string, unknown>;
+  return o.schemaVersion === CURRENT_SCHEMA_VERSION
+    && Array.isArray(o.tracks)
+    && Array.isArray(o.clips)
+    && Array.isArray(o.channels)
+    && Array.isArray(o.installedPlugins)
+    && typeof o.bpm === 'number';
+}
+
 const SEED_INSTALLED_PLUGINS: InstalledPlugin[] = [
   { pluginId: 'com.noa.sine', version: '1.0.0', name: 'Sine', kind: 'gen' },
   { pluginId: 'com.noa.gain', version: '1.0.0', name: 'Gain', kind: 'fx' },
@@ -88,6 +114,7 @@ const SEED_INSTALLED_PLUGINS: InstalledPlugin[] = [
 
 export function seedProject(): Project {
   return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     tracks: structuredClone(DEMO_TRACKS) as Track[],
     clips: structuredClone(DEMO_CLIPS) as Clip[],
     channels: structuredClone(DEMO_CHANNELS) as Channel[],

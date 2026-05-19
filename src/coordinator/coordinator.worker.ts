@@ -2,7 +2,7 @@
 import { applyPatches } from 'immer';
 import { applyAction } from './reducer';
 import { HistoryStack } from './history';
-import { seedProject, type Project } from './projectModel';
+import { seedProject, isProjectCompatible, type Project } from './projectModel';
 import { OpfsProjectStore, DebouncedSaver } from './persistence';
 import type { ClientToWorker, WorkerToClient } from './protocol';
 import type { Action } from './actions';
@@ -23,22 +23,6 @@ const saver = new DebouncedSaver<Project>(async (p) => {
 const ports = new Set<MessagePort>();
 let nextPortId = 1;
 const portIds = new WeakMap<MessagePort, number>();
-
-/**
- * Structural compatibility check against the current Project schema. When a
- * saved project predates a schema change (e.g. lacks `installedPlugins`)
- * we discard it and reseed rather than spinning up a half-typed reducer
- * — per the project's no-backcompat rule, schema breaks are clean breaks.
- */
-function isProjectCompatible(p: unknown): p is Project {
-  if (!p || typeof p !== 'object') return false;
-  const o = p as Record<string, unknown>;
-  return Array.isArray(o.tracks)
-    && Array.isArray(o.clips)
-    && Array.isArray(o.channels)
-    && Array.isArray(o.installedPlugins)
-    && typeof o.bpm === 'number';
-}
 
 void (async () => {
   try {
