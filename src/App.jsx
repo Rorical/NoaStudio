@@ -470,10 +470,9 @@ export default function App() {
   }, [theme]);
 
   const playRef = useRef(null);
+  const stopRef = useRef(null);
   useEffect(() => {
     const onKey = (e) => {
-      // Skip when the user is editing a form field — Space typing into an
-      // input shouldn't toggle transport, Cmd+Z in an input should undo text.
       const tag = (e.target instanceof HTMLElement) ? e.target.tagName : '';
       const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
         || (e.target instanceof HTMLElement && e.target.isContentEditable);
@@ -485,16 +484,25 @@ export default function App() {
         else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo(); }
         return;
       }
-      // Space toggles play/stop — DAW convention. preventDefault suppresses
-      // the page scroll the browser would otherwise do.
+      // Space toggles play/stop; Esc stops + rewinds; Home rewinds to 0; L
+      // toggles loop. DAW conventions.
       if (e.code === 'Space') {
         e.preventDefault();
         playRef.current?.();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        stopRef.current?.();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setTime(0);
+      } else if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        dispatch({ type: 'TOGGLE_LOOP' });
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo]);
+  }, [undo, redo, dispatch]);
 
   // Sync the loop region into the worklet whenever it (or BPM) changes. The
   // worklet pre-computes loopStart/EndSamples on receipt and wraps the
@@ -609,6 +617,7 @@ export default function App() {
     setTime(0);
     engineRef.current?.stop();
   }, [engineRef]);
+  useEffect(() => { stopRef.current = handleStop; }, [handleStop]);
 
   const handleRecord = useCallback(() => {
     setRecording((r) => !r);
