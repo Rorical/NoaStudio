@@ -85,6 +85,39 @@ describe('reducer — clips', () => {
     expect(s1).toBe(s0);
     expect(patches).toEqual([]);
   });
+
+  it('DUPLICATE_CLIP appends a copy at start+length with a new id', () => {
+    const s0 = seedProject();
+    const c1 = s0.clips.find((c) => c.id === 'c1')!;
+    const before = s0.clips.length;
+    const [s1] = run(s0, { type: 'DUPLICATE_CLIP', clipId: 'c1', newId: 'c_dup' });
+    expect(s1.clips).toHaveLength(before + 1);
+    const dup = s1.clips.find((c) => c.id === 'c_dup')!;
+    expect(dup.trackId).toBe(c1.trackId);
+    expect(dup.start).toBe(c1.start + c1.length);
+    expect(dup.length).toBe(c1.length);
+    // Original is untouched.
+    expect(s1.clips.find((c) => c.id === 'c1')!.start).toBe(c1.start);
+  });
+
+  it('DUPLICATE_CLIP deep-clones the pattern.notes array', () => {
+    const s0 = seedProject();
+    const c1 = s0.clips.find((c) => c.id === 'c1')!;
+    expect(c1.pattern).toBeDefined();
+    const [s1] = run(s0, { type: 'DUPLICATE_CLIP', clipId: 'c1', newId: 'c_dup' });
+    const dup = s1.clips.find((c) => c.id === 'c_dup')!;
+    expect(dup.pattern!.notes).toEqual(c1.pattern!.notes);
+    expect(dup.pattern!.notes).not.toBe(c1.pattern!.notes);
+    // Each note tuple is a fresh array too.
+    expect(dup.pattern!.notes[0]).not.toBe(c1.pattern!.notes[0]);
+  });
+
+  it('DUPLICATE_CLIP on unknown clip is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'DUPLICATE_CLIP', clipId: 'cZZ' });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
 });
 
 describe('reducer — tracks (with channel cascade)', () => {

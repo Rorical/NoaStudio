@@ -484,6 +484,10 @@ export default function App() {
       if (cmd) {
         if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
         else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo(); }
+        else if ((e.key === 'd' || e.key === 'D') && selectedClipIdRef.current) {
+          e.preventDefault();
+          dispatch({ type: 'DUPLICATE_CLIP', clipId: selectedClipIdRef.current });
+        }
         return;
       }
       // Space toggles play/stop; Esc stops + rewinds; Home rewinds to 0; L

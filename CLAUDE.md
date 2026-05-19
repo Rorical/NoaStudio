@@ -28,7 +28,7 @@ A per-instance JS `Worker` handles slow non-RT work like preset compilation. Eac
 
 Project state lives in a `SharedWorker` in `src/coordinator/`, persisted to OPFS. A `schemaVersion` field gates incompatible saved projects on load — they're discarded and reseeded rather than half-loaded. See `docs/superpowers/plans/2026-05-17-noa-daw-roadmap.md` for what's still deferred (audio clip PCM playback, WaveformView, multi-version per plugin id).
 
-Keyboard shortcuts: **Space** = play/stop, **Esc** = stop + rewind, **Home** = rewind to 0, **L** = toggle loop, **Delete** / **Backspace** = delete the selected clip, **Cmd/Ctrl-Z** = undo, **Cmd/Ctrl-Shift-Z** / **Cmd/Ctrl-Y** = redo. Shortcuts bail when an editable element (INPUT, TEXTAREA, contenteditable) is focused.
+Keyboard shortcuts: **Space** = play/stop, **Esc** = stop + rewind, **Home** = rewind to 0, **L** = toggle loop, **Delete** / **Backspace** = delete the selected clip, **Cmd/Ctrl-D** = duplicate the selected clip, **Cmd/Ctrl-Z** = undo, **Cmd/Ctrl-Shift-Z** / **Cmd/Ctrl-Y** = redo. Shortcuts bail when an editable element (INPUT, TEXTAREA, contenteditable) is focused.
 
 ### State lives in App.jsx
 

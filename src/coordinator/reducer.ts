@@ -60,6 +60,19 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         if (idx >= 0) draft.clips.splice(idx, 1);
         return;
       }
+      case 'DUPLICATE_CLIP': {
+        const c = draft.clips.find((x) => x.id === action.clipId);
+        if (!c) return;
+        const newId = action.newId ?? ('c' + Math.random().toString(36).slice(2, 10));
+        const clone = {
+          ...c,
+          id: newId,
+          start: c.start + c.length,
+          ...(c.pattern ? { pattern: { notes: c.pattern.notes.map((n) => [...n] as [number, number, number]) } } : {}),
+        };
+        draft.clips.push(clone);
+        return;
+      }
       case 'TOGGLE_TRACK_MUTE': {
         const t = draft.tracks.find((x) => x.id === action.trackId);
         if (!t) return;
