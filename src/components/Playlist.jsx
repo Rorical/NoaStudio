@@ -9,12 +9,15 @@ const TRACK_H = 56;
 export default function Playlist({
   tracks, clips, selectedClipId, onSelectClip, onMoveClip, onOpenPianoRoll,
   time, playing, onSetTime, onAssignGenerator, onAddTrackEffect,
+  onRemoveTrackEffect, onReorderTrackEffect,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
 }) {
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
   const scrollRef = useRef(null);
   const [drag, setDrag] = useState(null);
   const [hoverTrack, setHoverTrack] = useState(null);
+  /** Which track's FX list is open (one at a time, or null). */
+  const [fxOpenTrackId, setFxOpenTrackId] = useState(null);
   const playheadX = time * BEAT_PX;
 
   useEffect(() => {
@@ -113,9 +116,16 @@ export default function Playlist({
                       : (t.type === 'audio' ? 'Audio in' : 'No plugin')}
                   </span>
                   {t.effects && t.effects.length > 0 && (
-                    <span className="track-fx-count mono" title={`${t.effects.length} track FX (drop an effect to add, Shift-drop to force)`}>
+                    <button
+                      className={`track-fx-count mono ${fxOpenTrackId === t.id ? 'open' : ''}`}
+                      title={`${t.effects.length} track FX — click to manage`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFxOpenTrackId((id) => id === t.id ? null : t.id);
+                      }}
+                    >
                       <Icon name="tune" size={10} /> {t.effects.length}
-                    </span>
+                    </button>
                   )}
                 </div>
               </div>
@@ -124,6 +134,34 @@ export default function Playlist({
                 <button className={`tlet solo ${t.solo ? 'on' : ''}`} title="Solo" onClick={() => onSoloTrack(t.id)}>S</button>
                 <div className="track-channel mono" title="Mixer channel">{String(t.channel).padStart(2, '0')}</div>
               </div>
+              {fxOpenTrackId === t.id && t.effects && t.effects.length > 0 && (
+                <div className="track-fx-list">
+                  {t.effects.map((fx, i) => (
+                    <div key={fx.id} className="track-fx-row">
+                      <span className="track-fx-name">
+                        {lookup(fx.pluginId)?.name ?? fx.pluginId}
+                      </span>
+                      <button
+                        className="btn-icon tiny"
+                        title="Move up"
+                        disabled={i === 0}
+                        onClick={() => onReorderTrackEffect?.(t.id, i, i - 1)}
+                      ><Icon name="chevron_u" size={12} /></button>
+                      <button
+                        className="btn-icon tiny"
+                        title="Move down"
+                        disabled={i === t.effects.length - 1}
+                        onClick={() => onReorderTrackEffect?.(t.id, i, i + 1)}
+                      ><Icon name="chevron_d" size={12} /></button>
+                      <button
+                        className="btn-icon tiny"
+                        title="Remove"
+                        onClick={() => onRemoveTrackEffect?.(fx.id)}
+                      ><Icon name="close" size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -245,6 +245,58 @@ describe('reducer — project settings', () => {
   });
 });
 
+describe('reducer — REORDER_TRACK_EFFECT', () => {
+  function withTwoTrackFx() {
+    const s0 = seedProject();
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 't1' }, defaults: [1.0], instanceId: 'i_a',
+    });
+    const [s2] = run(s1, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 't1' }, defaults: [1.0], instanceId: 'i_b',
+    });
+    return s2;
+  }
+
+  it('moves a track FX from one slot to another', () => {
+    const s0 = withTwoTrackFx();
+    const before = s0.tracks.find((t) => t.id === 't1')!.effects.map((e) => e.id);
+    const [s1] = run(s0, {
+      type: 'REORDER_TRACK_EFFECT', trackId: 't1', fromIndex: 1, toIndex: 0,
+    });
+    const after = s1.tracks.find((t) => t.id === 't1')!.effects.map((e) => e.id);
+    expect(after).toEqual([before[1], before[0]]);
+  });
+
+  it('no-op when fromIndex === toIndex', () => {
+    const s0 = withTwoTrackFx();
+    const [s1, patches] = run(s0, {
+      type: 'REORDER_TRACK_EFFECT', trackId: 't1', fromIndex: 0, toIndex: 0,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('no-op for out-of-range indices', () => {
+    const s0 = withTwoTrackFx();
+    const [s1, patches] = run(s0, {
+      type: 'REORDER_TRACK_EFFECT', trackId: 't1', fromIndex: 99, toIndex: 0,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('no-op for unknown track', () => {
+    const s0 = withTwoTrackFx();
+    const [s1, patches] = run(s0, {
+      type: 'REORDER_TRACK_EFFECT', trackId: 'tZZ', fromIndex: 0, toIndex: 1,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+});
+
 describe('reducer — track FX inserts', () => {
   it('LOAD_PLUGIN with target kind track-fx appends to the track effects', () => {
     const s0 = seedProject();

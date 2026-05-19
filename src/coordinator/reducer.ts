@@ -125,6 +125,18 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         ch.effects.splice(toIndex, 0, moved);
         return;
       }
+      case 'REORDER_TRACK_EFFECT': {
+        const t = draft.tracks.find((x) => x.id === action.trackId);
+        if (!t) return;
+        const { fromIndex, toIndex } = action;
+        if (fromIndex < 0 || fromIndex >= t.effects.length) return;
+        if (toIndex < 0 || toIndex >= t.effects.length) return;
+        if (fromIndex === toIndex) return;
+        const [moved] = t.effects.splice(fromIndex, 1);
+        if (!moved) return;
+        t.effects.splice(toIndex, 0, moved);
+        return;
+      }
       case 'SET_PARAM': {
         const inst = findInstance(draft, action.instanceId);
         if (!inst) return;

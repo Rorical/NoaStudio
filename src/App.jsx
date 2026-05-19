@@ -629,6 +629,14 @@ export default function App() {
     });
   }, [dispatch]);
 
+  const removeTrackEffect = useCallback((instanceId) => {
+    dispatch({ type: 'UNLOAD_PLUGIN', instanceId });
+  }, [dispatch]);
+
+  const reorderTrackEffect = useCallback((trackId, fromIndex, toIndex) => {
+    dispatch({ type: 'REORDER_TRACK_EFFECT', trackId, fromIndex, toIndex });
+  }, [dispatch]);
+
   const addEffect = useCallback((channelId, plugin) => {
     if (!plugin?.pluginId) return;
     dispatch({
@@ -748,6 +756,8 @@ export default function App() {
               onSetTime={setTime}
               onAssignGenerator={assignGenerator}
               onAddTrackEffect={addTrackEffect}
+              onRemoveTrackEffect={removeTrackEffect}
+              onReorderTrackEffect={reorderTrackEffect}
               pluginCatalog={pluginCatalog}
               trackColors={TRACK_COLORS}
               onMuteTrack={toggleTrackMute}
