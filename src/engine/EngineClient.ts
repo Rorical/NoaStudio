@@ -150,13 +150,15 @@ export class EngineClient {
   }
 
   /**
-   * Push a ParamSet event to the instance at `slot`. Block-rate; use the
-   * per-instance param ring (handed back from `loadPlugin`) for sample-accurate
-   * UI knob updates.
+   * Push a ParamSet event to the instance identified by `instanceId`. Block-
+   * rate; use the per-instance param ring (handed back from `loadPlugin`) for
+   * sample-accurate UI knob updates. No-op if the instance is unknown.
    */
-  setParam(slot: number, paramIndex: number, value: number): void {
+  setParam(instanceId: string, paramIndex: number, value: number): void {
+    const meta = this.instances.get(instanceId);
+    if (!meta) return;
     this.sendEvent({
-      type: EVT_PARAM_SET, sampleTime: 0, targetId: slot, paramIndex, value,
+      type: EVT_PARAM_SET, sampleTime: 0, targetId: meta.numericId, paramIndex, value,
     });
   }
 

@@ -13,6 +13,7 @@ import { PluginInstaller } from './engine/PluginInstaller.ts';
 import { PluginRegistry } from './engine/PluginRegistry.ts';
 import { ClipScheduler } from './engine/ClipScheduler.ts';
 import { channelHash } from './engine/channelHash.ts';
+import { diffInstanceParams } from './engine/diffInstanceParams.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
 
@@ -362,6 +363,24 @@ export default function App() {
     }
     bypassStateRef.current = collect;
   }, [engineReady, tracks, channels, engineRef]);
+
+  // Forward coordinator-side param changes into the engine. The plugin UI
+  // iframes still write to the per-instance param ring directly for low-
+  // latency; this effect covers everything else (SET_PARAM from the Mixer,
+  // undo/redo, future automation).
+  const paramSnapshotRef = useRef(new Map());
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const next = new Map();
+    for (const t of tracks) if (t.generator) next.set(t.generator.id, t.generator.params);
+    for (const c of channels) for (const fx of c.effects) next.set(fx.id, fx.params);
+    for (const change of diffInstanceParams(paramSnapshotRef.current, next)) {
+      engine.setParam(change.instanceId, change.paramIndex, change.value);
+    }
+    paramSnapshotRef.current = next;
+  }, [engineReady, tracks, channels, registryVersion, engineRef]);
 
   // ClipScheduler — instantiated once the engine is ready, started/stopped
   // with the transport. Re-syncs its project copy on coordinator changes.
