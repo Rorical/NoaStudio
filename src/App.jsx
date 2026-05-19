@@ -617,6 +617,10 @@ export default function App() {
     dispatch({ type: 'SET_INSTANCE_BYPASS', instanceId, bypass: !current });
   }, [dispatch]);
 
+  const reorderEffect = useCallback((channelId, fromIndex, toIndex) => {
+    dispatch({ type: 'REORDER_EFFECT', channelId, fromIndex, toIndex });
+  }, [dispatch]);
+
   const setFader = useCallback((id, v) => {
     dispatch({ type: 'SET_FADER', channelId: id, value: v });
   }, [dispatch]);
@@ -738,6 +742,7 @@ export default function App() {
             onAddEffect={addEffect}
             onRemoveEffect={removeEffect}
             onBypassEffect={bypassEffect}
+            onReorderEffect={reorderEffect}
             onOpenEditor={openPluginWindow}
             pluginCatalog={pluginCatalog}
             trackColors={TRACK_COLORS}

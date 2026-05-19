@@ -100,6 +100,18 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         }
         return;
       }
+      case 'REORDER_EFFECT': {
+        const ch = draft.channels.find((c) => c.id === action.channelId);
+        if (!ch) return;
+        const { fromIndex, toIndex } = action;
+        if (fromIndex < 0 || fromIndex >= ch.effects.length) return;
+        if (toIndex < 0 || toIndex >= ch.effects.length) return;
+        if (fromIndex === toIndex) return;
+        const [moved] = ch.effects.splice(fromIndex, 1);
+        if (!moved) return;
+        ch.effects.splice(toIndex, 0, moved);
+        return;
+      }
       case 'SET_PARAM': {
         const inst = findInstance(draft, action.instanceId);
         if (!inst) return;

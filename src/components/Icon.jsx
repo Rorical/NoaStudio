@@ -19,6 +19,7 @@ const ICONS = {
   more:        <circle cx="12" cy="5" r="2"/>,
   more_h:      <g><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></g>,
   chevron_d:   <path d="M7 10l5 5 5-5z"/>,
+  chevron_u:   <path d="M7 14l5-5 5 5z"/>,
   chevron_r:   <path d="M10 7l5 5-5 5z"/>,
   chevron_l:   <path d="M14 7l-5 5 5 5z"/>,
   expand:      <path d="M5 19V5h4v2H7v2H5zm10-14h4v4h-2V7h-2zM5 19h4v-2H7v-2H5zm14 0v-4h-2v2h-2v2z"/>,

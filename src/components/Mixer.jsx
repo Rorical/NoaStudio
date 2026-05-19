@@ -4,7 +4,7 @@ import Icon from './Icon.jsx';
 export default function Mixer({
   channels, levels, selectedChannelId, onSelectChannel,
   onFader, onPan, onMute, onSolo, onAddEffect, onRemoveEffect, onBypassEffect,
-  onOpenEditor, pluginCatalog, trackColors, wide,
+  onReorderEffect, onOpenEditor, pluginCatalog, trackColors, wide,
 }) {
   // pluginCatalog: Map<pluginId, { name: string, kind: 'gen' | 'fx', tag?: string }>
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -75,6 +75,7 @@ export default function Mixer({
           lookup={lookup}
           onRemoveEffect={(iid) => onRemoveEffect(selectedChannel.id, iid)}
           onBypassEffect={(iid, current) => onBypassEffect(selectedChannel.id, iid, current)}
+          onReorderEffect={onReorderEffect}
           onOpenEditor={onOpenEditor}
           onDrop={(e) => onFxPanelDrop(e, selectedChannel)}
         />
@@ -206,7 +207,7 @@ function ChannelStrip({ channel, color, level, level2, selected, isMaster, isBus
   );
 }
 
-function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onOpenEditor, onDrop }) {
+function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onOpenEditor, onReorderEffect, onDrop }) {
   const [over, setOver] = useState(false);
   if (!channel) return null;
   return (
@@ -236,12 +237,16 @@ function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onOpe
             key={fx.id}
             fx={fx}
             index={i}
+            total={channel.effects.length}
             color={color}
             info={lookup?.(fx.pluginId)}
             hasUi={lookup?.(fx.pluginId)?.hasUi ?? false}
             onBypass={() => onBypassEffect(fx.id, fx.bypass)}
             onRemove={() => onRemoveEffect(fx.id)}
             onOpenEditor={() => onOpenEditor?.(fx.id)}
+            onMoveUp={i > 0 ? () => onReorderEffect?.(channel.id, i, i - 1) : null}
+            onMoveDown={i < channel.effects.length - 1
+              ? () => onReorderEffect?.(channel.id, i, i + 1) : null}
           />
         ))}
 
@@ -272,7 +277,7 @@ function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onOpe
 
 const FX_ICON = { gen: 'synth', fx: 'tune' };
 
-function FxCard({ fx, info, hasUi, onBypass, onRemove, onOpenEditor }) {
+function FxCard({ fx, info, hasUi, onBypass, onRemove, onOpenEditor, onMoveUp, onMoveDown }) {
   const displayName = info?.name ?? fx.pluginId;
   const kind = info?.kind ?? 'fx';
   const wet = kind === 'fx' ? 0.65 : 0.85;
@@ -302,6 +307,18 @@ function FxCard({ fx, info, hasUi, onBypass, onRemove, onOpenEditor }) {
         </div>
       </div>
       <div className="fx-card-actions">
+        <button
+          className="btn-icon tiny"
+          title="Move up"
+          disabled={!onMoveUp}
+          onClick={onMoveUp ?? undefined}
+        ><Icon name="chevron_u" size={14} /></button>
+        <button
+          className="btn-icon tiny"
+          title="Move down"
+          disabled={!onMoveDown}
+          onClick={onMoveDown ?? undefined}
+        ><Icon name="chevron_d" size={14} /></button>
         <button
           className="btn-icon tiny"
           title={hasUi ? 'Open editor' : 'No editor'}

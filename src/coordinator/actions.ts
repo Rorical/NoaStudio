@@ -15,6 +15,7 @@ export type Action =
       instanceId?: string;
     }
   | { type: 'UNLOAD_PLUGIN'; instanceId: string }
+  | { type: 'REORDER_EFFECT'; channelId: string; fromIndex: number; toIndex: number }
   | { type: 'SET_PARAM'; instanceId: string; paramIndex: number; value: number }
   | { type: 'SET_INSTANCE_BYPASS'; instanceId: string; bypass: boolean }
   | { type: 'SET_FADER'; channelId: string; value: number }

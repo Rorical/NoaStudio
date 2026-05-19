@@ -245,6 +245,57 @@ describe('reducer — project settings', () => {
   });
 });
 
+describe('reducer — REORDER_EFFECT', () => {
+  it('moves an FX from one slot to another', () => {
+    const s0 = seedProject();
+    // Pad m0 with two more FX so we have something to reorder.
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'channel-fx', channelId: 'm0' }, defaults: [1], instanceId: 'i_a',
+    });
+    const [s2] = run(s1, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'channel-fx', channelId: 'm0' }, defaults: [1], instanceId: 'i_b',
+    });
+    const before = s2.channels.find((c) => c.id === 'm0')!.effects.map((e) => e.id);
+    // Move the last entry to the front.
+    const [s3] = run(s2, {
+      type: 'REORDER_EFFECT', channelId: 'm0', fromIndex: before.length - 1, toIndex: 0,
+    });
+    const after = s3.channels.find((c) => c.id === 'm0')!.effects.map((e) => e.id);
+    expect(after[0]).toBe(before[before.length - 1]);
+    expect(after).toHaveLength(before.length);
+    expect(new Set(after)).toEqual(new Set(before));
+  });
+
+  it('no-op when fromIndex === toIndex', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'REORDER_EFFECT', channelId: 'm0', fromIndex: 0, toIndex: 0,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('no-op for out-of-range indices', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'REORDER_EFFECT', channelId: 'm0', fromIndex: 99, toIndex: 0,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('no-op for unknown channel', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'REORDER_EFFECT', channelId: 'mZZ', fromIndex: 0, toIndex: 0,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+});
+
 describe('reducer — installed plugins', () => {
   it('seedProject ships the two built-ins as installedPlugins', () => {
     const s0 = seedProject();
