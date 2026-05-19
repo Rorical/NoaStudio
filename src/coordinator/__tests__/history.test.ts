@@ -77,4 +77,58 @@ describe('HistoryStack', () => {
     }
     expect(h.undo()).toBeNull();
   });
+
+  it('caps drop the oldest entry: the surviving 100 are the most recent', () => {
+    const h = new HistoryStack();
+    for (let i = 0; i < 150; i++) {
+      h.push({
+        patches: [{ op: 'replace', path: ['bpm'], value: i + 1 }],
+        inversePatches: [{ op: 'replace', path: ['bpm'], value: i }],
+      });
+    }
+    // Undo once → last push (i=149) should be popped. Its forward patch sets bpm=150.
+    const r = h.undo();
+    expect(r!.patchesToApply[0]).toMatchObject({ value: 149 });
+    // After exhausting all 100 undos, the oldest still-present should be i=50.
+    let last: typeof r = null;
+    while (h.canUndo()) last = h.undo();
+    expect(last!.patchesToApply[0]).toMatchObject({ value: 50 });
+  });
+
+  it('multiple sequential undo/redo cycles preserve the forward/inverse pair', () => {
+    const s0 = seedProject();
+    const [s1, p1, i1] = applyAction(s0, { type: 'SET_BPM', bpm: 200 });
+    const h = new HistoryStack();
+    h.push({ patches: p1, inversePatches: i1 });
+    for (let i = 0; i < 5; i++) {
+      const u = h.undo();
+      expect(u!.patchesToApply).toBe(i1);
+      const r = h.redo();
+      expect(r!.patchesToApply).toBe(p1);
+    }
+    // After the loop, applying the forward patch to s0 should yield s1.bpm.
+    expect(applyPatches(s0, p1).bpm).toBe(s1.bpm);
+  });
+
+  it('stacked undos walk back through every transaction in reverse order', () => {
+    const h = new HistoryStack();
+    h.push({ patches: [{ op: 'replace', path: ['bpm'], value: 100 }], inversePatches: [{ op: 'replace', path: ['bpm'], value: 124 }] });
+    h.push({ patches: [{ op: 'replace', path: ['bpm'], value: 110 }], inversePatches: [{ op: 'replace', path: ['bpm'], value: 100 }] });
+    h.push({ patches: [{ op: 'replace', path: ['bpm'], value: 120 }], inversePatches: [{ op: 'replace', path: ['bpm'], value: 110 }] });
+    // Each undo should return inverse of the most-recently-pushed transaction.
+    expect(h.undo()!.patchesToApply[0]).toMatchObject({ value: 110 });
+    expect(h.undo()!.patchesToApply[0]).toMatchObject({ value: 100 });
+    expect(h.undo()!.patchesToApply[0]).toMatchObject({ value: 124 });
+    expect(h.undo()).toBeNull();
+  });
+
+  it('push with empty patches still consumes a stack slot', () => {
+    // The history file docs say callers should guard, but the stack itself
+    // doesn't, so empty-patch transactions DO occupy space.
+    const h = new HistoryStack();
+    h.push({ patches: [], inversePatches: [] });
+    expect(h.canUndo()).toBe(true);
+    const r = h.undo();
+    expect(r!.patchesToApply).toEqual([]);
+  });
 });
