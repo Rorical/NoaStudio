@@ -203,6 +203,10 @@ export default function App() {
     const wanted = new Map();
     for (const t of tracks) {
       if (t.generator) wanted.set(t.generator.id, { instance: t.generator, chainId: t.id, slot: 0 });
+      (t.effects ?? []).forEach((fx, i) => {
+        // Slot 0 is the generator (or empty); track FX live at 1..N.
+        wanted.set(fx.id, { instance: fx, chainId: t.id, slot: i + 1 });
+      });
     }
     for (const c of channels) {
       c.effects.forEach((fx, slot) => {
@@ -301,7 +305,10 @@ export default function App() {
     const engine = engineRef.current;
     if (!engine) return;
     const collect = new Map();
-    for (const t of tracks) if (t.generator) collect.set(t.generator.id, !!t.generator.bypass);
+    for (const t of tracks) {
+      if (t.generator) collect.set(t.generator.id, !!t.generator.bypass);
+      for (const fx of t.effects ?? []) collect.set(fx.id, !!fx.bypass);
+    }
     for (const c of channels) for (const fx of c.effects) collect.set(fx.id, !!fx.bypass);
     const prev = bypassStateRef.current;
     for (const [id, b] of collect) {
@@ -320,7 +327,10 @@ export default function App() {
     const engine = engineRef.current;
     if (!engine) return;
     const next = new Map();
-    for (const t of tracks) if (t.generator) next.set(t.generator.id, t.generator.params);
+    for (const t of tracks) {
+      if (t.generator) next.set(t.generator.id, t.generator.params);
+      for (const fx of t.effects ?? []) next.set(fx.id, fx.params);
+    }
     for (const c of channels) for (const fx of c.effects) next.set(fx.id, fx.params);
     for (const change of diffInstanceParams(paramSnapshotRef.current, next)) {
       engine.setParam(change.instanceId, change.paramIndex, change.value);

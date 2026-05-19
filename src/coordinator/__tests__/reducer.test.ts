@@ -245,6 +245,83 @@ describe('reducer — project settings', () => {
   });
 });
 
+describe('reducer — track FX inserts', () => {
+  it('LOAD_PLUGIN with target kind track-fx appends to the track effects', () => {
+    const s0 = seedProject();
+    const t1Before = s0.tracks.find((t) => t.id === 't1')!;
+    expect(t1Before.effects).toEqual([]);
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN',
+      pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 't1' },
+      defaults: [1.0],
+    });
+    const t1After = s1.tracks.find((t) => t.id === 't1')!;
+    expect(t1After.effects).toHaveLength(1);
+    expect(t1After.effects[0]!.pluginId).toBe('com.noa.gain');
+    // Original generator stays put.
+    expect(t1After.generator?.id).toBe(t1Before.generator?.id);
+  });
+
+  it('LOAD_PLUGIN track-fx with insertAt inserts at the given position', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 't1' }, defaults: [1.0], instanceId: 'i_first',
+    });
+    const [s2] = run(s1, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 't1', insertAt: 0 },
+      defaults: [1.0], instanceId: 'i_second',
+    });
+    const effects = s2.tracks.find((t) => t.id === 't1')!.effects;
+    expect(effects.map((e) => e.id)).toEqual(['i_second', 'i_first']);
+  });
+
+  it('LOAD_PLUGIN track-fx with unknown trackId is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 'tZZ' }, defaults: [1.0],
+    });
+    expect(s1).toBe(s0);
+    expect(patches.length).toBe(0);
+  });
+
+  it('UNLOAD_PLUGIN removes a track FX', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 't1' }, defaults: [1.0], instanceId: 'i_tfx',
+    });
+    const [s2] = run(s1, { type: 'UNLOAD_PLUGIN', instanceId: 'i_tfx' });
+    expect(s2.tracks.find((t) => t.id === 't1')!.effects).toHaveLength(0);
+    // Generator survives.
+    expect(s2.tracks.find((t) => t.id === 't1')!.generator).not.toBeNull();
+  });
+
+  it('SET_PARAM works on a track FX instance', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 't1' }, defaults: [1.0], instanceId: 'i_tfx',
+    });
+    const [s2] = run(s1, { type: 'SET_PARAM', instanceId: 'i_tfx', paramIndex: 0, value: 0.25 });
+    const fx = s2.tracks.find((t) => t.id === 't1')!.effects[0]!;
+    expect(fx.params[0]).toBe(0.25);
+  });
+
+  it('SET_INSTANCE_BYPASS works on a track FX instance', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, {
+      type: 'LOAD_PLUGIN', pluginId: 'com.noa.gain',
+      target: { kind: 'track-fx', trackId: 't1' }, defaults: [1.0], instanceId: 'i_tfx',
+    });
+    const [s2] = run(s1, { type: 'SET_INSTANCE_BYPASS', instanceId: 'i_tfx', bypass: true });
+    expect(s2.tracks.find((t) => t.id === 't1')!.effects[0]!.bypass).toBe(true);
+  });
+});
+
 describe('reducer — SET_SEND_LEVEL', () => {
   it('sets a per-destination send level, creating sendLevels lazily', () => {
     const s0 = seedProject();

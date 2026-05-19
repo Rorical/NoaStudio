@@ -12,6 +12,8 @@ function findInstance(
 ): PluginInstance | undefined {
   for (const t of draft.tracks) {
     if (t.generator && t.generator.id === instanceId) return t.generator;
+    const fx = t.effects.find((e) => e.id === instanceId);
+    if (fx) return fx;
   }
   for (const ch of draft.channels) {
     const found = ch.effects.find((e) => e.id === instanceId);
@@ -75,6 +77,12 @@ export function applyAction(state: Project, action: Action): ReducerResult {
             t.generator = inst;
             t.type = 'midi';
           }
+        } else if (target.kind === 'track-fx') {
+          const t = draft.tracks.find((x) => x.id === target.trackId);
+          if (t) {
+            const at = target.insertAt ?? t.effects.length;
+            t.effects.splice(at, 0, inst);
+          }
         } else {
           const ch = draft.channels.find((c) => c.id === target.channelId);
           if (ch) {
@@ -88,6 +96,11 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         for (const t of draft.tracks) {
           if (t.generator && t.generator.id === action.instanceId) {
             t.generator = null;
+            return;
+          }
+          const trackFxIdx = t.effects.findIndex((e) => e.id === action.instanceId);
+          if (trackFxIdx >= 0) {
+            t.effects.splice(trackFxIdx, 1);
             return;
           }
         }

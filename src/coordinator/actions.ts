@@ -9,6 +9,7 @@ export type Action =
       pluginId: string;
       target:
         | { kind: 'channel-fx'; channelId: string; insertAt?: number }
+        | { kind: 'track-fx'; trackId: string; insertAt?: number }
         | { kind: 'track-generator'; trackId: string };
       defaults: number[];
       /** Optional explicit instance id (defaults to a fresh random id). */

@@ -20,6 +20,9 @@ export interface Track {
   color: number;
   /** The track's generator plugin instance. `null` when the track has no generator. */
   generator: PluginInstance | null;
+  /** Pre-channel FX inserts. Each is chained after the generator (slot 0)
+   *  in the track's worklet PluginChain at slot 1..N. */
+  effects: PluginInstance[];
   channel: number;
   mute: boolean;
   solo: boolean;
@@ -77,7 +80,7 @@ export interface InstalledPlugin {
  * discarded by the coordinator on load (a future migration pass can run
  * here instead).
  */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface Project {
   schemaVersion: number;
