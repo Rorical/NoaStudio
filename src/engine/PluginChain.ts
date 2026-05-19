@@ -26,11 +26,25 @@ export class PluginChain {
   private readonly bus: Float32Array;
   /** Per-slot accumulated raw EngineEvent frames for the current block. */
   private readonly slotEvents = new Map<number, SlotEventBuffer>();
+  /** Per-slot bypass flag — true means the slot is silent and audio passes
+   *  straight through to the next slot. */
+  private readonly bypass = new Map<number, boolean>();
   readonly maxBlockSize: number;
 
   constructor(maxBlockSize: number) {
     this.maxBlockSize = maxBlockSize;
     this.bus = new Float32Array(maxBlockSize * 2);
+  }
+
+  /** Set/clear the bypass flag for a slot. No-op for empty slots. */
+  setBypass(slot: number, bypass: boolean): void {
+    if (bypass) this.bypass.set(slot, true);
+    else this.bypass.delete(slot);
+  }
+
+  /** Whether the given slot is currently bypassed. */
+  isBypassed(slot: number): boolean {
+    return this.bypass.get(slot) === true;
   }
 
   /** Place an instance at `slot`, growing the chain if needed. */
@@ -55,6 +69,7 @@ export class PluginChain {
     inst.destroy();
     this.chain[slot] = null;
     this.slotEvents.delete(slot);
+    this.bypass.delete(slot);
   }
 
   /** Retrieve the instance at `slot`, or null. */
@@ -131,6 +146,22 @@ export class PluginChain {
       if (!inst) continue;
       hadAnySlot = true;
 
+      // Bypassed FX: pass upstream audio (or external inBus on the first slot)
+      // straight through the bus. Bypassed generators: emit silence. In both
+      // cases, drain queued events to prevent them piling up over blocks.
+      if (this.bypass.get(slot) === true) {
+        const entry = this.slotEvents.get(slot);
+        if (entry) entry.count = 0;
+        if (inst.manifest.kind === 'fx') {
+          if (firstSlot && inBus) this.bus.set(inBus.subarray(0, blockSize * 2));
+          // else: bus already holds upstream output from the previous slot
+        } else {
+          this.bus.fill(0, 0, blockSize * 2);
+        }
+        firstSlot = false;
+        continue;
+      }
+
       inst.drainParamRing();
 
       const entry = this.slotEvents.get(slot);
@@ -180,5 +211,6 @@ export class PluginChain {
       this.chain[i] = null;
     }
     this.slotEvents.clear();
+    this.bypass.clear();
   }
 }

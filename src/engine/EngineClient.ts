@@ -250,6 +250,13 @@ export class EngineClient {
     this.protocol?.setLoop({ ...args, bpm: this.currentBpm, sampleRate: this.ctx.sampleRate });
   }
 
+  /** Set/clear bypass on the slot occupied by `instanceId`. */
+  setBypass(instanceId: string, bypass: boolean): void {
+    const meta = this.instances.get(instanceId);
+    if (!meta) return;
+    this.protocol?.setBypass({ chainId: meta.chainId, slot: meta.slot, bypass });
+  }
+
   /** Look up the engine-side numeric id used as `targetId` for events. */
   getNumericId(instanceId: string): number | undefined {
     return this.instances.get(instanceId)?.numericId;

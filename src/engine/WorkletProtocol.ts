@@ -131,6 +131,12 @@ export class WorkletProtocol {
     this.port.postMessage({ type: 'UPDATE_ROUTING', config });
   }
 
+  /** Set/clear the bypass flag for a plugin slot. */
+  setBypass(args: { chainId: string; slot: number; bypass: boolean }): void {
+    if (this.disposed) return;
+    this.port.postMessage({ type: 'SET_BYPASS', ...args });
+  }
+
   /**
    * Configure the worklet's loop region. The worklet pre-computes
    * loopStart/EndSamples from `bpm` + `sampleRate` once on receipt; callers

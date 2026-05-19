@@ -75,12 +75,20 @@ interface SetLoopMessage {
   sampleRate: number;
 }
 
+interface SetBypassMessage {
+  type: 'SET_BYPASS';
+  chainId: string;
+  slot: number;
+  bypass: boolean;
+}
+
 type WorkletInbound =
   | InstantiateMessage
   | DestroyMessage
   | ApplyPresetStateMessage
   | UpdateRoutingMessage
-  | SetLoopMessage;
+  | SetLoopMessage
+  | SetBypassMessage;
 
 interface PendingEvent {
   sampleTime: number;
@@ -147,6 +155,11 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
         case 'SET_LOOP':
           this.handleSetLoop(m);
           break;
+        case 'SET_BYPASS': {
+          const chain = this.pluginChains.get(m.chainId);
+          if (chain) chain.setBypass(m.slot, m.bypass);
+          break;
+        }
       }
     };
   }

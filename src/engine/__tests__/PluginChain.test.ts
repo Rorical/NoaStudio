@@ -157,6 +157,62 @@ describe('PluginChain — install / uninstall', () => {
   });
 });
 
+describe('PluginChain — bypass', () => {
+  it('bypassed generator emits silence', () => {
+    const chain = new PluginChain(BLOCK);
+    chain.install(0, makeGen([0.5]));
+    chain.setBypass(0, true);
+    const out = new Float32Array(BLOCK * 2);
+    chain.processBlock(BLOCK, out);
+    for (let i = 0; i < out.length; i++) expect(out[i]).toBe(0);
+    chain.dispose();
+  });
+
+  it('bypassed FX in slot 1 passes generator output through unchanged', () => {
+    const chain = new PluginChain(BLOCK);
+    chain.install(0, makeGen([0.7]));
+    chain.install(1, makeFx([0.5])); // would halve if active
+    chain.setBypass(1, true);
+    const out = new Float32Array(BLOCK * 2);
+    chain.processBlock(BLOCK, out);
+    for (let i = 0; i < out.length; i++) expect(out[i]).toBeCloseTo(0.7, 5);
+    chain.dispose();
+  });
+
+  it('bypassed FX in slot 0 of an FX-only chain passes inBus through', () => {
+    const chain = new PluginChain(BLOCK);
+    chain.install(0, makeFx([0.5]));
+    chain.setBypass(0, true);
+    const inBus = new Float32Array(BLOCK * 2).fill(0.3);
+    const out = new Float32Array(BLOCK * 2);
+    chain.processBlock(BLOCK, out, inBus);
+    for (let i = 0; i < out.length; i++) expect(out[i]).toBeCloseTo(0.3, 5);
+    chain.dispose();
+  });
+
+  it('clearing bypass restores normal processing', () => {
+    const chain = new PluginChain(BLOCK);
+    chain.install(0, makeGen([0.5]));
+    chain.install(1, makeFx([0.5]));
+    chain.setBypass(1, true);
+    chain.setBypass(1, false);
+    const out = new Float32Array(BLOCK * 2);
+    chain.processBlock(BLOCK, out);
+    for (let i = 0; i < out.length; i++) expect(out[i]).toBeCloseTo(0.25, 5); // 0.5 × 0.5
+    chain.dispose();
+  });
+
+  it('uninstall clears the bypass flag', () => {
+    const chain = new PluginChain(BLOCK);
+    chain.install(0, makeFx([0.5]));
+    chain.setBypass(0, true);
+    expect(chain.isBypassed(0)).toBe(true);
+    chain.uninstall(0);
+    expect(chain.isBypassed(0)).toBe(false);
+    chain.dispose();
+  });
+});
+
 describe('PluginChain — queued event frames', () => {
   it('drops queued events for a slot that is destroyed before the next block', () => {
     const chain = new PluginChain(BLOCK);

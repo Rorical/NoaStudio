@@ -346,6 +346,23 @@ export default function App() {
     engine.updateRouting(buildRoutingConfig(tracks, channels));
   }, [engineReady, tracks, channels, engineRef]);
 
+  // Push per-instance bypass state into the worklet whenever it changes.
+  // Track every (instanceId → bypass) pair so we only fire on real edits.
+  const bypassStateRef = useRef(new Map());
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const collect = new Map();
+    for (const t of tracks) if (t.generator) collect.set(t.generator.id, !!t.generator.bypass);
+    for (const c of channels) for (const fx of c.effects) collect.set(fx.id, !!fx.bypass);
+    const prev = bypassStateRef.current;
+    for (const [id, b] of collect) {
+      if (prev.get(id) !== b) engine.setBypass(id, b);
+    }
+    bypassStateRef.current = collect;
+  }, [engineReady, tracks, channels, engineRef]);
+
   // ClipScheduler — instantiated once the engine is ready, started/stopped
   // with the transport. Re-syncs its project copy on coordinator changes.
   const [scheduler, setScheduler] = useState(null);
