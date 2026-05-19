@@ -10,13 +10,14 @@ export async function registerSW() {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
     return null;
   }
-  // Dev: Vite serves the SW as transformed TS with ESM imports, which needs
-  // a module-type SW. Production: Rollup bundles a single classic script.
-  const opts = import.meta.env.DEV
-    ? { scope: '/', type: 'module' }
-    : { scope: '/' };
+  // Module SW in both dev and prod: Vite emits ESM with `import` statements
+  // for the production bundle too (its `?worker` output keeps the module
+  // graph), so classic-script registration trips on "Cannot use import
+  // statement outside a module".
   try {
-    const reg = await navigator.serviceWorker.register('/plugin-cache-sw.js', opts);
+    const reg = await navigator.serviceWorker.register('/plugin-cache-sw.js', {
+      scope: '/', type: 'module',
+    });
     await navigator.serviceWorker.ready;
     return reg;
   } catch (err) {
