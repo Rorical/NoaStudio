@@ -23,6 +23,9 @@ class FakeFile {
     new Uint8Array(ab).set(this._bytes);
     return ab;
   }
+  async text(): Promise<string> {
+    return new TextDecoder().decode(this._bytes);
+  }
 }
 
 export class FakeFileHandle {

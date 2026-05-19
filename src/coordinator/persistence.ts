@@ -38,6 +38,17 @@ export class DebouncedSaver<T> {
 export class OpfsProjectStore {
   private rootPromise: Promise<FileSystemDirectoryHandle> | null = null;
 
+  /**
+   * Optionally inject a pre-resolved root handle (Node tests pass in a fake
+   * implementing the File System Access API). Production callers pass no
+   * arguments and the store reads `navigator.storage.getDirectory()` lazily.
+   */
+  constructor(rootHandle?: FileSystemDirectoryHandle | Promise<FileSystemDirectoryHandle>) {
+    if (rootHandle) {
+      this.rootPromise = Promise.resolve(rootHandle);
+    }
+  }
+
   private async root(): Promise<FileSystemDirectoryHandle> {
     if (!this.rootPromise) {
       this.rootPromise = navigator.storage.getDirectory();
