@@ -361,6 +361,37 @@ describe('reducer — project settings', () => {
     expect(s1.loop).toBe(!s0.loop);
   });
 
+  it('SET_LOOP_REGION updates start and end', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'SET_LOOP_REGION', startBeats: 4, endBeats: 12 });
+    expect(s1.loopStartBeats).toBe(4);
+    expect(s1.loopEndBeats).toBe(12);
+  });
+
+  it('SET_LOOP_REGION clamps start to 0', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'SET_LOOP_REGION', startBeats: -10, endBeats: 8 });
+    expect(s1.loopStartBeats).toBe(0);
+    expect(s1.loopEndBeats).toBe(8);
+  });
+
+  it('SET_LOOP_REGION pushes end to at least start+1', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'SET_LOOP_REGION', startBeats: 4, endBeats: 4 });
+    expect(s1.loopEndBeats).toBe(5);
+    const [s2] = run(s0, { type: 'SET_LOOP_REGION', startBeats: 4, endBeats: 2 });
+    expect(s2.loopEndBeats).toBe(5);
+  });
+
+  it('SET_LOOP_REGION is a no-op when both bounds are unchanged', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'SET_LOOP_REGION', startBeats: s0.loopStartBeats, endBeats: s0.loopEndBeats,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
   it('TOGGLE_METRONOME flips metronome', () => {
     const s0 = seedProject();
     const [s1] = run(s0, { type: 'TOGGLE_METRONOME' });

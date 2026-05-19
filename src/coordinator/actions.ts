@@ -30,6 +30,7 @@ export type Action =
   | { type: 'TOGGLE_CHANNEL_SOLO'; channelId: string }
   | { type: 'SET_BPM'; bpm: number }
   | { type: 'TOGGLE_LOOP' }
+  | { type: 'SET_LOOP_REGION'; startBeats: number; endBeats: number }
   | { type: 'TOGGLE_METRONOME' }
   | { type: 'LOAD_PROJECT'; project: unknown }
   | {

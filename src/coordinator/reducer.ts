@@ -213,6 +213,15 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         draft.loop = !draft.loop;
         return;
       }
+      case 'SET_LOOP_REGION': {
+        const start = Math.max(0, action.startBeats);
+        // End must sit strictly after start; floor the region at one beat.
+        const end = Math.max(start + 1, action.endBeats);
+        if (start === draft.loopStartBeats && end === draft.loopEndBeats) return;
+        draft.loopStartBeats = start;
+        draft.loopEndBeats = end;
+        return;
+      }
       case 'TOGGLE_METRONOME': {
         draft.metronome = !draft.metronome;
         return;
@@ -220,13 +229,14 @@ export function applyAction(state: Project, action: Action): ReducerResult {
       case 'LOAD_PROJECT': {
         if (!isProjectCompatible(action.project)) return;
         const next = action.project;
-        // Replace every top-level field in the draft with the loaded values.
         draft.schemaVersion = next.schemaVersion;
         draft.tracks = next.tracks;
         draft.clips = next.clips;
         draft.channels = next.channels;
         draft.bpm = next.bpm;
         draft.loop = next.loop;
+        draft.loopStartBeats = next.loopStartBeats;
+        draft.loopEndBeats = next.loopEndBeats;
         draft.metronome = next.metronome;
         draft.installedPlugins = next.installedPlugins;
         return;

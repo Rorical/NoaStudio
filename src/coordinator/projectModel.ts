@@ -80,7 +80,7 @@ export interface InstalledPlugin {
  * discarded by the coordinator on load (a future migration pass can run
  * here instead).
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export interface Project {
   schemaVersion: number;
@@ -89,6 +89,9 @@ export interface Project {
   channels: Channel[];
   bpm: number;
   loop: boolean;
+  /** Loop region in beats, [start, end). Honored when `loop` is true. */
+  loopStartBeats: number;
+  loopEndBeats: number;
   metronome: boolean;
   installedPlugins: InstalledPlugin[];
 }
@@ -107,7 +110,9 @@ export function isProjectCompatible(p: unknown): p is Project {
     && Array.isArray(o.clips)
     && Array.isArray(o.channels)
     && Array.isArray(o.installedPlugins)
-    && typeof o.bpm === 'number';
+    && typeof o.bpm === 'number'
+    && typeof o.loopStartBeats === 'number'
+    && typeof o.loopEndBeats === 'number';
 }
 
 const SEED_INSTALLED_PLUGINS: InstalledPlugin[] = [
@@ -123,6 +128,8 @@ export function seedProject(): Project {
     channels: structuredClone(DEMO_CHANNELS) as Channel[],
     bpm: 124,
     loop: true,
+    loopStartBeats: 0,
+    loopEndBeats: 32,
     metronome: false,
     installedPlugins: structuredClone(SEED_INSTALLED_PLUGINS),
   };

@@ -31,6 +31,7 @@ const selectBpm = (p) => p.bpm;
 const selectLoop = (p) => p.loop;
 const selectMetronome = (p) => p.metronome;
 const selectInstalledPlugins = (p) => p.installedPlugins;
+const selectLoopRegion = (p) => ({ start: p.loopStartBeats, end: p.loopEndBeats });
 
 export default function App() {
   const [theme, setTheme] = useState('dark');
@@ -51,6 +52,7 @@ export default function App() {
   const loop = useProject(selectLoop);
   const metronome = useProject(selectMetronome);
   const installedPlugins = useProject(selectInstalledPlugins);
+  const loopRegion = useProject(selectLoopRegion);
   const [time, setTime] = useState(0);
   const [levels, setLevels] = useState({});
 
@@ -581,8 +583,12 @@ export default function App() {
     const engine = engineRef.current;
     if (!engine) return;
     engine.setTempo(bpm);
-    engine.setLoop({ enabled: loop, startBeats: 0, endBeats: 32 });
-  }, [engineReady, bpm, loop, engineRef]);
+    engine.setLoop({
+      enabled: loop,
+      startBeats: loopRegion.start,
+      endBeats: loopRegion.end,
+    });
+  }, [engineReady, bpm, loop, loopRegion.start, loopRegion.end, engineRef]);
 
   useEffect(() => {
     if (!playing) return;
