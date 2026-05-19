@@ -306,6 +306,48 @@ describe('reducer — plugin instances', () => {
   });
 });
 
+describe('reducer — LOAD_PROJECT', () => {
+  it('replaces the entire project with the loaded one', () => {
+    const s0 = seedProject();
+    const replacement = seedProject();
+    replacement.bpm = 88;
+    replacement.tracks = replacement.tracks.slice(0, 2);
+    replacement.installedPlugins = [];
+    const [s1] = run(s0, { type: 'LOAD_PROJECT', project: replacement });
+    expect(s1.bpm).toBe(88);
+    expect(s1.tracks).toHaveLength(2);
+    expect(s1.installedPlugins).toHaveLength(0);
+  });
+
+  it('rejects incompatible saves', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'LOAD_PROJECT',
+      project: { bpm: 120 /* missing arrays, no schemaVersion */ },
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('rejects projects with a different schemaVersion', () => {
+    const s0 = seedProject();
+    const replacement = seedProject();
+    replacement.schemaVersion = 999;
+    const [s1, patches] = run(s0, { type: 'LOAD_PROJECT', project: replacement });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('rejects non-object payloads', () => {
+    const s0 = seedProject();
+    for (const p of [null, undefined, 'a string', 42]) {
+      const [s1, patches] = run(s0, { type: 'LOAD_PROJECT', project: p });
+      expect(s1).toBe(s0);
+      expect(patches).toEqual([]);
+    }
+  });
+});
+
 describe('reducer — project settings', () => {
   it('SET_BPM updates bpm', () => {
     const s0 = seedProject();

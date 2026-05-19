@@ -13,7 +13,7 @@ function formatSnap(beats) {
 export default function Toolbar({
   playing, onPlay, onStop, onRecord, recording, loop, onLoop,
   metronome, onMetronome, bpm, onBpm, time, timeSig, projectName, masterLevels,
-  masterVol, onMasterVol, snapBeats, onCycleSnap,
+  masterVol, onMasterVol, snapBeats, onCycleSnap, onSaveProject, onLoadProject,
   view, onView, browserOpen, onToggleBrowser, pianoOpen, onTogglePiano,
   onOpenTweaks, onUndo, onRedo, canUndo, canRedo,
 }) {
@@ -221,7 +221,18 @@ export default function Toolbar({
         >
           <Icon name="redo" size={18} />
         </button>
-        <button className="btn-icon small" title="Save"><Icon name="save" size={18} /></button>
+        <button
+          className="btn-icon small"
+          title="Save project to file"
+          onClick={onSaveProject}
+        ><Icon name="save" size={18} /></button>
+        {onLoadProject && (
+          <button
+            className="btn-icon small"
+            title="Load project from file"
+            onClick={onLoadProject}
+          ><Icon name="folder_open" size={18} /></button>
+        )}
         <button className="btn-icon small" title="Settings" onClick={onOpenTweaks}><Icon name="settings" size={18} /></button>
       </div>
     </header>

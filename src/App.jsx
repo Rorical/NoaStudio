@@ -759,6 +759,44 @@ export default function App() {
     dispatch({ type: 'SET_SEND_LEVEL', channelId, destChannelId, level });
   }, [dispatch]);
 
+  // Save: snapshot current project state to a Blob URL the browser downloads.
+  const saveProject = useCallback(() => {
+    const project = {
+      schemaVersion: 2,
+      tracks, clips, channels, bpm, loop, metronome,
+      installedPlugins,
+    };
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const date = new Date().toISOString().slice(0, 10);
+    a.download = `noa-project-${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [tracks, clips, channels, bpm, loop, metronome, installedPlugins]);
+
+  const loadProject = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        dispatch({ type: 'LOAD_PROJECT', project: parsed });
+      } catch (err) {
+        console.error('[noa] LOAD_PROJECT failed:', err);
+        alert('Could not load project: ' + (err?.message ?? err));
+      }
+    };
+    input.click();
+  }, [dispatch]);
+
   const setFader = useCallback((id, v) => {
     dispatch({ type: 'SET_FADER', channelId: id, value: v });
   }, [dispatch]);
@@ -806,6 +844,8 @@ export default function App() {
         masterLevels={masterLevels}
         masterVol={channels.find((c) => c.id === 'm0')?.vol ?? 1}
         onMasterVol={(v) => dispatch({ type: 'SET_FADER', channelId: 'm0', value: v })}
+        onSaveProject={saveProject}
+        onLoadProject={loadProject}
         snapBeats={snapBeats}
         onCycleSnap={() => setSnapBeats((s) => {
           // off → 1/4 → 1/2 → 1 → 4 → off

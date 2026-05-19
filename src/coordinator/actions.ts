@@ -31,6 +31,7 @@ export type Action =
   | { type: 'SET_BPM'; bpm: number }
   | { type: 'TOGGLE_LOOP' }
   | { type: 'TOGGLE_METRONOME' }
+  | { type: 'LOAD_PROJECT'; project: unknown }
   | {
       type: 'INSTALL_PLUGIN';
       entry: {

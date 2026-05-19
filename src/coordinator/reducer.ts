@@ -1,5 +1,6 @@
 import { enablePatches, produceWithPatches, type Patch } from 'immer';
 import type { Project, PluginInstance } from './projectModel';
+import { isProjectCompatible } from './projectModel';
 import type { Action } from './actions';
 
 enablePatches();
@@ -214,6 +215,20 @@ export function applyAction(state: Project, action: Action): ReducerResult {
       }
       case 'TOGGLE_METRONOME': {
         draft.metronome = !draft.metronome;
+        return;
+      }
+      case 'LOAD_PROJECT': {
+        if (!isProjectCompatible(action.project)) return;
+        const next = action.project;
+        // Replace every top-level field in the draft with the loaded values.
+        draft.schemaVersion = next.schemaVersion;
+        draft.tracks = next.tracks;
+        draft.clips = next.clips;
+        draft.channels = next.channels;
+        draft.bpm = next.bpm;
+        draft.loop = next.loop;
+        draft.metronome = next.metronome;
+        draft.installedPlugins = next.installedPlugins;
         return;
       }
       case 'INSTALL_PLUGIN': {
