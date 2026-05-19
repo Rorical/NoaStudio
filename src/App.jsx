@@ -18,7 +18,7 @@ import { MidiInput } from './engine/MidiInput.ts';
 import { buildRoutingConfig } from './engine/routingConfig.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
-import { findAdjacentClip } from './coordinator/findAdjacentClip.ts';
+import { findAdjacentClip, findClipOnAdjacentTrack } from './coordinator/findAdjacentClip.ts';
 
 // buildRoutingConfig + topoSortChannels live in src/engine/routingConfig.ts
 // so they're testable outside the React tree.
@@ -528,6 +528,19 @@ export default function App() {
         if (next) {
           e.preventDefault();
           setSelectedClipId(next);
+        }
+      } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && selectedClipIdRef.current) {
+        const next = findClipOnAdjacentTrack(
+          clipsRef.current ?? [],
+          tracksRef.current ?? [],
+          selectedClipIdRef.current,
+          e.key === 'ArrowDown' ? 'next' : 'prev',
+        );
+        if (next) {
+          e.preventDefault();
+          setSelectedClipId(next);
+          const target = (clipsRef.current ?? []).find((c) => c.id === next);
+          if (target) setSelectedTrackId(target.trackId);
         }
       }
     };

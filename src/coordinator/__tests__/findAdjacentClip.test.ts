@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findAdjacentClip } from '../findAdjacentClip';
+import { findAdjacentClip, findClipOnAdjacentTrack } from '../findAdjacentClip';
 import type { Clip } from '../projectModel';
 
 function clip(id: string, trackId: string, start: number, length = 4): Clip {
@@ -63,5 +63,56 @@ describe('findAdjacentClip', () => {
     const clips = [clip('a', 't1', 0), clip('b', 't2', 0)];
     expect(findAdjacentClip(clips, 'a', 'next')).toBeNull();
     expect(findAdjacentClip(clips, 'a', 'prev')).toBeNull();
+  });
+});
+
+describe('findClipOnAdjacentTrack', () => {
+  const tracks = [{ id: 't1' }, { id: 't2' }, { id: 't3' }];
+
+  it('returns the closest clip on the next track', () => {
+    const clips = [
+      clip('a', 't1', 4),
+      clip('b1', 't2', 0),
+      clip('b2', 't2', 6),
+    ];
+    // a is at start 4. On t2: b1@0 (dist 4) vs b2@6 (dist 2). b2 wins.
+    expect(findClipOnAdjacentTrack(clips, tracks, 'a', 'next')).toBe('b2');
+  });
+
+  it('returns the closest clip on the previous track', () => {
+    const clips = [
+      clip('a1', 't1', 0),
+      clip('a2', 't1', 8),
+      clip('b', 't2', 5),
+    ];
+    expect(findClipOnAdjacentTrack(clips, tracks, 'b', 'prev')).toBe('a2');
+  });
+
+  it('skips tracks with no clips', () => {
+    const clips = [
+      clip('a', 't1', 0),
+      // t2 is empty
+      clip('c', 't3', 2),
+    ];
+    expect(findClipOnAdjacentTrack(clips, tracks, 'a', 'next')).toBe('c');
+  });
+
+  it('returns null when there is no track with clips in the direction', () => {
+    const clips = [clip('a', 't1', 0)];
+    expect(findClipOnAdjacentTrack(clips, tracks, 'a', 'prev')).toBeNull();
+    expect(findClipOnAdjacentTrack(clips, tracks, 'a', 'next')).toBeNull();
+  });
+
+  it('returns null for unknown current clip id', () => {
+    expect(findClipOnAdjacentTrack([], tracks, 'zzz', 'next')).toBeNull();
+  });
+
+  it('ties on distance prefer the earlier-starting clip', () => {
+    const clips = [
+      clip('a', 't1', 4),
+      clip('b1', 't2', 2), // dist 2
+      clip('b2', 't2', 6), // dist 2
+    ];
+    expect(findClipOnAdjacentTrack(clips, tracks, 'a', 'next')).toBe('b1');
   });
 });
