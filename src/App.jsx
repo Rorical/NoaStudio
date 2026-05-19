@@ -18,6 +18,7 @@ import { MidiInput } from './engine/MidiInput.ts';
 import { buildRoutingConfig } from './engine/routingConfig.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
+import { findAdjacentClip } from './coordinator/findAdjacentClip.ts';
 
 // buildRoutingConfig + topoSortChannels live in src/engine/routingConfig.ts
 // so they're testable outside the React tree.
@@ -476,6 +477,8 @@ export default function App() {
   useEffect(() => { selectedClipIdRef.current = selectedClipId; }, [selectedClipId]);
   const selectedTrackIdRef = useRef(null);
   useEffect(() => { selectedTrackIdRef.current = selectedTrackId; }, [selectedTrackId]);
+  const clipsRef = useRef(clips);
+  useEffect(() => { clipsRef.current = clips; }, [clips]);
   useEffect(() => {
     const onKey = (e) => {
       const tag = (e.target instanceof HTMLElement) ? e.target.tagName : '';
@@ -516,6 +519,16 @@ export default function App() {
       } else if ((e.key === 's' || e.key === 'S') && selectedTrackIdRef.current) {
         e.preventDefault();
         dispatch({ type: 'TOGGLE_TRACK_SOLO', trackId: selectedTrackIdRef.current });
+      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && selectedClipIdRef.current) {
+        const next = findAdjacentClip(
+          clipsRef.current ?? [],
+          selectedClipIdRef.current,
+          e.key === 'ArrowRight' ? 'next' : 'prev',
+        );
+        if (next) {
+          e.preventDefault();
+          setSelectedClipId(next);
+        }
       }
     };
     window.addEventListener('keydown', onKey);
