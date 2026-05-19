@@ -4,6 +4,7 @@ import {
   EVT_NOTE_ON, EVT_NOTE_OFF, EVT_PARAM_SET, EVT_TRANSPORT, EVT_TEMPO,
   TRANSPORT_PLAY, TRANSPORT_STOP,
   encodeEvent, decodeEvent,
+  rewriteFrameOffset,
   type EngineEvent,
 } from '../EngineEvent';
 
@@ -69,5 +70,51 @@ describe('EngineEvent', () => {
     const buf = new Uint8Array(EVENT_FRAME_SIZE);
     buf[0] = 99;
     expect(() => decodeEvent(buf)).toThrow(/unknown event type/);
+  });
+});
+
+describe('rewriteFrameOffset', () => {
+  it('replaces bytes 4-7 with the new frameOffset value, leaving the rest of the frame intact', () => {
+    const buf = new Uint8Array(EVENT_FRAME_SIZE);
+    encodeEvent({
+      type: EVT_NOTE_ON, sampleTime: 123456, targetId: 7, note: 60, velocity: 100, channel: 0,
+    }, buf);
+    const beforeBytes = Array.from(buf);
+    rewriteFrameOffset(buf, 42);
+    // bytes 4-7 are now the little-endian u32 42
+    expect(buf[4]).toBe(42);
+    expect(buf[5]).toBe(0);
+    expect(buf[6]).toBe(0);
+    expect(buf[7]).toBe(0);
+    // everything else is unchanged
+    for (let i = 0; i < 4; i++) expect(buf[i]).toBe(beforeBytes[i]);
+    for (let i = 8; i < EVENT_FRAME_SIZE; i++) expect(buf[i]).toBe(beforeBytes[i]);
+    // The plugin-side decode (treating bytes 4-7 as frameOffset) sees the new value;
+    // decodeEvent re-reads them as sampleTime since the byte layout overlaps.
+    const decoded = decodeEvent(buf);
+    expect(decoded.sampleTime).toBe(42);
+  });
+
+  it('handles offset 0 (NoteOn fires at block start)', () => {
+    const buf = new Uint8Array(EVENT_FRAME_SIZE);
+    encodeEvent({
+      type: EVT_NOTE_ON, sampleTime: 5000, targetId: 1, note: 64, velocity: 90, channel: 0,
+    }, buf);
+    rewriteFrameOffset(buf, 0);
+    expect(decodeEvent(buf).sampleTime).toBe(0);
+  });
+
+  it('handles large offsets up to u32 max', () => {
+    const buf = new Uint8Array(EVENT_FRAME_SIZE);
+    encodeEvent({
+      type: EVT_NOTE_ON, sampleTime: 0, targetId: 1, note: 64, velocity: 90, channel: 0,
+    }, buf);
+    rewriteFrameOffset(buf, 0xFFFFFFFF);
+    expect(decodeEvent(buf).sampleTime).toBe(0xFFFFFFFF);
+  });
+
+  it('rejects frames of the wrong size', () => {
+    expect(() => rewriteFrameOffset(new Uint8Array(31), 0)).toThrow(/bytes/);
+    expect(() => rewriteFrameOffset(new Uint8Array(33), 0)).toThrow(/bytes/);
   });
 });
