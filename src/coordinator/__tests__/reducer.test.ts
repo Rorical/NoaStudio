@@ -70,6 +70,21 @@ describe('reducer — clips', () => {
     expect(s1).toBe(s0);
     expect(patches).toEqual([]);
   });
+
+  it('DELETE_CLIP removes the clip from the clips array', () => {
+    const s0 = seedProject();
+    const before = s0.clips.length;
+    const [s1] = run(s0, { type: 'DELETE_CLIP', clipId: 'c1' });
+    expect(s1.clips).toHaveLength(before - 1);
+    expect(s1.clips.find((c) => c.id === 'c1')).toBeUndefined();
+  });
+
+  it('DELETE_CLIP on unknown clip is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'DELETE_CLIP', clipId: 'cZZ' });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
 });
 
 describe('reducer — tracks (with channel cascade)', () => {

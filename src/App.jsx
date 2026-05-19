@@ -471,6 +471,8 @@ export default function App() {
 
   const playRef = useRef(null);
   const stopRef = useRef(null);
+  const selectedClipIdRef = useRef(null);
+  useEffect(() => { selectedClipIdRef.current = selectedClipId; }, [selectedClipId]);
   useEffect(() => {
     const onKey = (e) => {
       const tag = (e.target instanceof HTMLElement) ? e.target.tagName : '';
@@ -498,6 +500,9 @@ export default function App() {
       } else if (e.key === 'l' || e.key === 'L') {
         e.preventDefault();
         dispatch({ type: 'TOGGLE_LOOP' });
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedClipIdRef.current) {
+        e.preventDefault();
+        dispatch({ type: 'DELETE_CLIP', clipId: selectedClipIdRef.current });
       }
     };
     window.addEventListener('keydown', onKey);

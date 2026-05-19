@@ -3,6 +3,7 @@ export type Action =
   | { type: 'UPDATE_CLIP_NOTES'; clipId: string; notes: [number, number, number][] }
   | { type: 'UPDATE_CLIP_LENGTH'; clipId: string; length: number }
   | { type: 'SET_CLIP_LENGTH'; clipId: string; length: number }
+  | { type: 'DELETE_CLIP'; clipId: string }
   | { type: 'TOGGLE_TRACK_MUTE'; trackId: string }
   | { type: 'TOGGLE_TRACK_SOLO'; trackId: string }
   | {

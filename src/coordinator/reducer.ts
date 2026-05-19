@@ -55,6 +55,11 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         c.length = len;
         return;
       }
+      case 'DELETE_CLIP': {
+        const idx = draft.clips.findIndex((x) => x.id === action.clipId);
+        if (idx >= 0) draft.clips.splice(idx, 1);
+        return;
+      }
       case 'TOGGLE_TRACK_MUTE': {
         const t = draft.tracks.find((x) => x.id === action.trackId);
         if (!t) return;
