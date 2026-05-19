@@ -700,6 +700,8 @@ export default function App() {
         timeSig={[4, 4]}
         projectName="Synthwave Demo.noa"
         masterLevels={masterLevels}
+        masterVol={channels.find((c) => c.id === 'm0')?.vol ?? 1}
+        onMasterVol={(v) => dispatch({ type: 'SET_FADER', channelId: 'm0', value: v })}
         onPlay={handlePlay}
         onStop={handleStop}
         onRecord={handleRecord}

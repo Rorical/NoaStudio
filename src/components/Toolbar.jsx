@@ -4,6 +4,7 @@ import Icon from './Icon.jsx';
 export default function Toolbar({
   playing, onPlay, onStop, onRecord, recording, loop, onLoop,
   metronome, onMetronome, bpm, onBpm, time, timeSig, projectName, masterLevels,
+  masterVol, onMasterVol,
   view, onView, browserOpen, onToggleBrowser, pianoOpen, onTogglePiano,
   onOpenTweaks, onUndo, onRedo, canUndo, canRedo,
 }) {
@@ -153,6 +154,18 @@ export default function Toolbar({
           <div className="master-db mono">
             -{Math.max(0, Math.min(99, (1 - Math.max(...masterLevels)) * 40)).toFixed(1)} dB
           </div>
+          {onMasterVol && (
+            <input
+              className="master-slider"
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={masterVol ?? 1}
+              onChange={(e) => onMasterVol(parseFloat(e.target.value))}
+              title={`Master vol: ${Math.round((masterVol ?? 1) * 100)}%`}
+            />
+          )}
         </div>
       </div>
 
