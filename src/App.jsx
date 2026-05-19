@@ -933,6 +933,9 @@ export default function App() {
               selectedTrackId={selectedTrackId}
               onSelectTrack={setSelectedTrackId}
               snapBeats={snapBeats}
+              loopStart={loopRegion.start}
+              loopEnd={loopRegion.end}
+              onSetLoopRegion={(start, end) => dispatch({ type: 'SET_LOOP_REGION', startBeats: start, endBeats: end })}
               pluginCatalog={pluginCatalog}
               trackColors={TRACK_COLORS}
               onMuteTrack={toggleTrackMute}

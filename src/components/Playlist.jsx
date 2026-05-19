@@ -11,6 +11,7 @@ export default function Playlist({
   time, playing, onSetTime, onAssignGenerator, onAddTrackEffect,
   onRemoveTrackEffect, onReorderTrackEffect,
   selectedTrackId, onSelectTrack, snapBeats = 0.25,
+  loopStart, loopEnd, onSetLoopRegion,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
 }) {
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -48,6 +49,20 @@ export default function Playlist({
     setDrag({ kind: 'resize', id: clip.id, startX: e.clientX, orig: clip.length, last: clip.length });
   };
 
+  const onLoopEdgeMouseDown = (e, edge) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setDrag({
+      kind: 'loop',
+      edge,
+      startX: e.clientX,
+      origStart: loopStart ?? 0,
+      origEnd: loopEnd ?? 32,
+      lastStart: loopStart ?? 0,
+      lastEnd: loopEnd ?? 32,
+    });
+  };
+
   useEffect(() => {
     if (!drag) return;
     const handleMove = (e) => {
@@ -69,6 +84,20 @@ export default function Playlist({
           onResizeClip?.(drag.id, newLength);
           setDrag((d) => ({ ...d, last: newLength }));
         }
+      } else if (drag.kind === 'loop') {
+        if (drag.edge === 'start') {
+          const newStart = Math.max(0, Math.min(drag.origEnd - 1, drag.origStart + deltaBeats));
+          if (newStart !== drag.lastStart) {
+            onSetLoopRegion?.(newStart, drag.origEnd);
+            setDrag((d) => ({ ...d, lastStart: newStart }));
+          }
+        } else {
+          const newEnd = Math.max(drag.origStart + 1, drag.origEnd + deltaBeats);
+          if (newEnd !== drag.lastEnd) {
+            onSetLoopRegion?.(drag.origStart, newEnd);
+            setDrag((d) => ({ ...d, lastEnd: newEnd }));
+          }
+        }
       }
     };
     const handleUp = () => setDrag(null);
@@ -78,7 +107,7 @@ export default function Playlist({
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [drag, onMoveClip, onResizeClip, snapBeats]);
+  }, [drag, onMoveClip, onResizeClip, onSetLoopRegion, snapBeats]);
 
   const onRulerClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -205,6 +234,27 @@ export default function Playlist({
                   <span className="mono">{i + 1}</span>
                 </div>
               ))}
+              {loopStart != null && loopEnd != null && loopEnd > loopStart && (
+                <div
+                  className="loop-region"
+                  style={{
+                    left: loopStart * BEAT_PX,
+                    width: (loopEnd - loopStart) * BEAT_PX,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    className="loop-handle loop-handle-start"
+                    onMouseDown={(e) => onLoopEdgeMouseDown(e, 'start')}
+                    title={`Loop start (beat ${loopStart})`}
+                  />
+                  <div
+                    className="loop-handle loop-handle-end"
+                    onMouseDown={(e) => onLoopEdgeMouseDown(e, 'end')}
+                    title={`Loop end (beat ${loopEnd})`}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="timeline-body">

@@ -670,6 +670,27 @@
 .clip-resize:hover {
   background: color-mix(in oklab, var(--track) 40%, transparent);
 }
+
+.loop-region {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in oklab, var(--m3-primary) 18%, transparent);
+  border-top: 2px solid var(--m3-primary);
+  pointer-events: auto;
+}
+.loop-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  background: var(--m3-primary);
+  opacity: 0.6;
+}
+.loop-handle:hover { opacity: 1; }
+.loop-handle-start { left: -3px; }
+.loop-handle-end { right: -3px; }
 .clip.selected {
   border-color: var(--track);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--track) 50%, transparent), 0 2px 6px rgba(0,0,0,0.35);
