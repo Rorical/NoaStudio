@@ -118,6 +118,40 @@ describe('reducer — clips', () => {
     expect(s1).toBe(s0);
     expect(patches).toEqual([]);
   });
+
+  it('SET_CLIP_LABEL renames a clip', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'SET_CLIP_LABEL', clipId: 'c1', label: 'New label' });
+    expect(s1.clips.find((c) => c.id === 'c1')!.label).toBe('New label');
+  });
+
+  it('SET_CLIP_LABEL trims whitespace', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'SET_CLIP_LABEL', clipId: 'c1', label: '  Padded  ' });
+    expect(s1.clips.find((c) => c.id === 'c1')!.label).toBe('Padded');
+  });
+
+  it('SET_CLIP_LABEL rejects empty / whitespace-only labels', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'SET_CLIP_LABEL', clipId: 'c1', label: '   ' });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('SET_CLIP_LABEL is a no-op when the label is unchanged', () => {
+    const s0 = seedProject();
+    const orig = s0.clips.find((c) => c.id === 'c1')!.label;
+    const [s1, patches] = run(s0, { type: 'SET_CLIP_LABEL', clipId: 'c1', label: orig });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('SET_CLIP_LABEL on unknown clip is a no-op', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'SET_CLIP_LABEL', clipId: 'cZZ', label: 'X' });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
 });
 
 describe('reducer — tracks (with channel cascade)', () => {

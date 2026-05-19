@@ -494,6 +494,8 @@ export default function App() {
   // Clip drag/resize snap — UI-local preference, not part of project state.
   // 0 = off (continuous), positive = snap factor in beats.
   const [snapBeats, setSnapBeats] = useState(0.25);
+  /** Clip id currently being renamed via the inline input; null means none. */
+  const [renamingClipId, setRenamingClipId] = useState(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -557,6 +559,9 @@ export default function App() {
           e.preventDefault();
           setSelectedClipId(next);
         }
+      } else if (e.key === 'F2' && selectedClipIdRef.current) {
+        e.preventDefault();
+        setRenamingClipId(selectedClipIdRef.current);
       } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && selectedClipIdRef.current) {
         const next = findClipOnAdjacentTrack(
           clipsRef.current ?? [],
@@ -954,6 +959,14 @@ export default function App() {
               onReorderTrackEffect={reorderTrackEffect}
               onResizeClip={(id, length) => dispatch({ type: 'SET_CLIP_LENGTH', clipId: id, length })}
               onDuplicateClip={(id) => dispatch({ type: 'DUPLICATE_CLIP', clipId: id })}
+              renamingClipId={renamingClipId}
+              onStartRenameClip={setRenamingClipId}
+              onCommitRenameClip={(id, label) => {
+                setRenamingClipId(null);
+                if (label && label.trim()) {
+                  dispatch({ type: 'SET_CLIP_LABEL', clipId: id, label });
+                }
+              }}
               selectedTrackId={selectedTrackId}
               onSelectTrack={setSelectedTrackId}
               snapBeats={snapBeats}

@@ -5,6 +5,7 @@ export type Action =
   | { type: 'SET_CLIP_LENGTH'; clipId: string; length: number }
   | { type: 'DELETE_CLIP'; clipId: string }
   | { type: 'DUPLICATE_CLIP'; clipId: string; newId?: string }
+  | { type: 'SET_CLIP_LABEL'; clipId: string; label: string }
   | { type: 'TOGGLE_TRACK_MUTE'; trackId: string }
   | { type: 'TOGGLE_TRACK_SOLO'; trackId: string }
   | {

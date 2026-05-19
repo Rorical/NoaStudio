@@ -12,6 +12,7 @@ export default function Playlist({
   onRemoveTrackEffect, onReorderTrackEffect,
   selectedTrackId, onSelectTrack, snapBeats = 0.25,
   loopStart, loopEnd, onSetLoopRegion,
+  renamingClipId, onStartRenameClip, onCommitRenameClip,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
 }) {
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -290,9 +291,12 @@ export default function Playlist({
                     top={ti * TRACK_H + 3}
                     height={TRACK_H - 6}
                     selected={isSel}
+                    renaming={renamingClipId === clip.id}
                     onMouseDown={(e) => onClipMouseDown(e, clip)}
                     onResizeMouseDown={(e) => onClipResizeMouseDown(e, clip)}
                     onDoubleClick={() => clip.pattern && onOpenPianoRoll(clip.id)}
+                    onLabelDoubleClick={() => onStartRenameClip?.(clip.id)}
+                    onCommitRename={(label) => onCommitRenameClip?.(clip.id, label)}
                   />
                 );
               })}
@@ -308,7 +312,7 @@ export default function Playlist({
   );
 }
 
-function ClipView({ clip, color, top, height, selected, onMouseDown, onResizeMouseDown, onDoubleClick }) {
+function ClipView({ clip, color, top, height, selected, renaming, onMouseDown, onResizeMouseDown, onDoubleClick, onLabelDoubleClick, onCommitRename }) {
   const w = clip.length * BEAT_PX;
   const x = clip.start * BEAT_PX;
 
@@ -320,8 +324,12 @@ function ClipView({ clip, color, top, height, selected, onMouseDown, onResizeMou
       onDoubleClick={onDoubleClick}
       title={clip.label}
     >
-      <div className="clip-head">
-        <span className="clip-name">{clip.label}</span>
+      <div className="clip-head" onDoubleClick={(e) => { e.stopPropagation(); onLabelDoubleClick?.(); }}>
+        {renaming ? (
+          <ClipRenameInput initial={clip.label} onCommit={onCommitRename} />
+        ) : (
+          <span className="clip-name">{clip.label}</span>
+        )}
       </div>
       <div className="clip-body">
         {clip.audio
@@ -334,6 +342,24 @@ function ClipView({ clip, color, top, height, selected, onMouseDown, onResizeMou
         title="Drag to resize"
       />
     </div>
+  );
+}
+
+function ClipRenameInput({ initial, onCommit }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <input
+      className="clip-rename-input mono"
+      autoFocus
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onMouseDown={(e) => e.stopPropagation()}
+      onBlur={() => onCommit?.(value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); onCommit?.(value); }
+        if (e.key === 'Escape') { e.preventDefault(); onCommit?.(initial); }
+      }}
+    />
   );
 }
 

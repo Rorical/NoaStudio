@@ -670,6 +670,17 @@
 .clip-resize:hover {
   background: color-mix(in oklab, var(--track) 40%, transparent);
 }
+.clip-rename-input {
+  width: calc(100% - 6px);
+  background: var(--m3-surface-container-high);
+  color: var(--m3-on-surface);
+  border: 1px solid var(--m3-primary);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+}
 
 .loop-region {
   position: absolute;

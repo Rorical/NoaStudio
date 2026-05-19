@@ -74,6 +74,15 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         draft.clips.push(clone);
         return;
       }
+      case 'SET_CLIP_LABEL': {
+        const c = draft.clips.find((x) => x.id === action.clipId);
+        if (!c) return;
+        const next = action.label.trim();
+        if (!next) return;
+        if (c.label === next) return;
+        c.label = next;
+        return;
+      }
       case 'TOGGLE_TRACK_MUTE': {
         const t = draft.tracks.find((x) => x.id === action.trackId);
         if (!t) return;
