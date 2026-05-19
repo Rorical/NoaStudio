@@ -134,6 +134,15 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         if (ch) ch.pan = action.value;
         return;
       }
+      case 'SET_SEND_LEVEL': {
+        const ch = draft.channels.find((c) => c.id === action.channelId);
+        if (!ch) return;
+        if (!ch.sends.includes(action.destChannelId)) return;
+        const level = Math.max(0, Math.min(1, action.level));
+        if (!ch.sendLevels) ch.sendLevels = {};
+        ch.sendLevels[action.destChannelId] = level;
+        return;
+      }
       case 'TOGGLE_CHANNEL_MUTE': {
         const ch = draft.channels.find((c) => c.id === action.channelId);
         if (ch) ch.mute = !ch.mute;

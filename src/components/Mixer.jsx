@@ -4,7 +4,7 @@ import Icon from './Icon.jsx';
 export default function Mixer({
   channels, levels, selectedChannelId, onSelectChannel,
   onFader, onPan, onMute, onSolo, onAddEffect, onRemoveEffect, onBypassEffect,
-  onReorderEffect, onOpenEditor, pluginCatalog, trackColors, wide,
+  onReorderEffect, onSetSendLevel, onOpenEditor, pluginCatalog, trackColors, wide,
 }) {
   // pluginCatalog: Map<pluginId, { name: string, kind: 'gen' | 'fx', tag?: string }>
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -76,6 +76,7 @@ export default function Mixer({
           onRemoveEffect={(iid) => onRemoveEffect(selectedChannel.id, iid)}
           onBypassEffect={(iid, current) => onBypassEffect(selectedChannel.id, iid, current)}
           onReorderEffect={onReorderEffect}
+          onSetSendLevel={onSetSendLevel}
           onOpenEditor={onOpenEditor}
           onDrop={(e) => onFxPanelDrop(e, selectedChannel)}
         />
@@ -207,7 +208,7 @@ function ChannelStrip({ channel, color, level, level2, selected, isMaster, isBus
   );
 }
 
-function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onOpenEditor, onReorderEffect, onDrop }) {
+function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onOpenEditor, onReorderEffect, onSetSendLevel, onDrop }) {
   const [over, setOver] = useState(false);
   if (!channel) return null;
   return (
@@ -264,14 +265,38 @@ function FxPanel({ channel, color, lookup, onRemoveEffect, onBypassEffect, onOpe
             {channel.sends.length === 0 ? (
               <span className="send-empty">none</span>
             ) : (
-              channel.sends.map((s, i) => (
-                <span key={i} className="send-chip mono">{s.replace('m', '#')}</span>
+              channel.sends.map((destId) => (
+                <SendRow
+                  key={destId}
+                  destId={destId}
+                  level={channel.sendLevels?.[destId] ?? 1}
+                  onChange={(lvl) => onSetSendLevel?.(channel.id, destId, lvl)}
+                />
               ))
             )}
           </div>
         </div>
       </div>
     </aside>
+  );
+}
+
+function SendRow({ destId, level, onChange }) {
+  return (
+    <span className="send-row">
+      <span className="send-chip mono">{destId.replace('m', '#')}</span>
+      <input
+        className="send-slider"
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={level}
+        onChange={(e) => onChange?.(parseFloat(e.target.value))}
+        title={`Send level → ${destId}: ${Math.round(level * 100)}%`}
+      />
+      <span className="send-level mono">{Math.round(level * 100)}</span>
+    </span>
   );
 }
 

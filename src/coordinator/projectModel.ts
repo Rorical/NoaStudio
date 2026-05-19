@@ -49,6 +49,13 @@ export interface Channel {
   mute: boolean;
   solo: boolean;
   sends: string[];
+  /**
+   * Per-destination send level. Keys are destination channel ids that also
+   * appear in `sends`; values are 0..1 (1 = full level). Missing entries
+   * default to 1 — that's the legacy behaviour from before this field
+   * existed.
+   */
+  sendLevels?: Record<string, number>;
   effects: PluginInstance[];
 }
 

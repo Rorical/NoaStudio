@@ -33,15 +33,20 @@ function buildRoutingConfig(tracks, channels) {
         mute: !!t.mute,
         solo: !!t.solo,
       })),
-    channels: channels.map((c) => ({
-      id: c.id,
-      fxChainId: c.id,
-      vol: c.vol ?? 1,
-      pan: c.pan ?? 0,
-      mute: !!c.mute,
-      solo: !!c.solo,
-      sendsTo: (c.sends ?? []).slice(),
-    })),
+    channels: channels.map((c) => {
+      const sendsTo = (c.sends ?? []).slice();
+      const sendsLevels = sendsTo.map((dest) => c.sendLevels?.[dest] ?? 1);
+      return {
+        id: c.id,
+        fxChainId: c.id,
+        vol: c.vol ?? 1,
+        pan: c.pan ?? 0,
+        mute: !!c.mute,
+        solo: !!c.solo,
+        sendsTo,
+        sendsLevels,
+      };
+    }),
     channelOrder: topoSortChannels(channels),
   };
 }
@@ -686,6 +691,10 @@ export default function App() {
     dispatch({ type: 'REORDER_EFFECT', channelId, fromIndex, toIndex });
   }, [dispatch]);
 
+  const setSendLevel = useCallback((channelId, destChannelId, level) => {
+    dispatch({ type: 'SET_SEND_LEVEL', channelId, destChannelId, level });
+  }, [dispatch]);
+
   const setFader = useCallback((id, v) => {
     dispatch({ type: 'SET_FADER', channelId: id, value: v });
   }, [dispatch]);
@@ -808,6 +817,7 @@ export default function App() {
             onRemoveEffect={removeEffect}
             onBypassEffect={bypassEffect}
             onReorderEffect={reorderEffect}
+            onSetSendLevel={setSendLevel}
             onOpenEditor={openPluginWindow}
             pluginCatalog={pluginCatalog}
             trackColors={TRACK_COLORS}

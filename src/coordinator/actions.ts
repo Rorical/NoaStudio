@@ -20,6 +20,7 @@ export type Action =
   | { type: 'SET_INSTANCE_BYPASS'; instanceId: string; bypass: boolean }
   | { type: 'SET_FADER'; channelId: string; value: number }
   | { type: 'SET_PAN'; channelId: string; value: number }
+  | { type: 'SET_SEND_LEVEL'; channelId: string; destChannelId: string; level: number }
   | { type: 'TOGGLE_CHANNEL_MUTE'; channelId: string }
   | { type: 'TOGGLE_CHANNEL_SOLO'; channelId: string }
   | { type: 'SET_BPM'; bpm: number }

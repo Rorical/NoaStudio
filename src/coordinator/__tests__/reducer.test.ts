@@ -245,6 +245,50 @@ describe('reducer — project settings', () => {
   });
 });
 
+describe('reducer — SET_SEND_LEVEL', () => {
+  it('sets a per-destination send level, creating sendLevels lazily', () => {
+    const s0 = seedProject();
+    const m2 = s0.channels.find((c) => c.id === 'm2')!;
+    expect(m2.sends).toContain('mB');
+    expect(m2.sendLevels).toBeUndefined();
+    const [s1] = run(s0, {
+      type: 'SET_SEND_LEVEL', channelId: 'm2', destChannelId: 'mB', level: 0.7,
+    });
+    const m2After = s1.channels.find((c) => c.id === 'm2')!;
+    expect(m2After.sendLevels).toEqual({ mB: 0.7 });
+  });
+
+  it('clamps the level to [0, 1]', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, {
+      type: 'SET_SEND_LEVEL', channelId: 'm2', destChannelId: 'mB', level: 5,
+    });
+    expect(s1.channels.find((c) => c.id === 'm2')!.sendLevels!.mB).toBe(1);
+    const [s2] = run(s0, {
+      type: 'SET_SEND_LEVEL', channelId: 'm2', destChannelId: 'mB', level: -3,
+    });
+    expect(s2.channels.find((c) => c.id === 'm2')!.sendLevels!.mB).toBe(0);
+  });
+
+  it('rejects setting a level for a destination not in the channel sends', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'SET_SEND_LEVEL', channelId: 'm1', destChannelId: 'mB', level: 0.5,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('rejects unknown channel', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, {
+      type: 'SET_SEND_LEVEL', channelId: 'mZZ', destChannelId: 'm0', level: 0.5,
+    });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+});
+
 describe('reducer — REORDER_EFFECT', () => {
   it('moves an FX from one slot to another', () => {
     const s0 = seedProject();
