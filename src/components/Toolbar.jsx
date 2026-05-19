@@ -14,7 +14,7 @@ export default function Toolbar({
   playing, onPlay, onStop, onRecord, recording, loop, onLoop,
   metronome, onMetronome, bpm, onBpm, time, timeSig, projectName, masterLevels,
   masterVol, onMasterVol, snapBeats, onCycleSnap, onTapTempo,
-  onSaveProject, onLoadProject,
+  midiInputCount, onToggleMidi, onSaveProject, onLoadProject,
   view, onView, browserOpen, onToggleBrowser, pianoOpen, onTogglePiano,
   onOpenTweaks, onUndo, onRedo, canUndo, canRedo,
 }) {
@@ -91,6 +91,17 @@ export default function Toolbar({
         >
           <Icon name="metronome" size={18} />
         </button>
+        {onToggleMidi && (
+          <button
+            className={`btn-icon transport-btn small ${midiInputCount > 0 ? 'active' : ''}`}
+            onClick={onToggleMidi}
+            title={midiInputCount > 0
+              ? `MIDI on (${midiInputCount} input${midiInputCount === 1 ? '' : 's'}) — click to disable`
+              : 'Enable MIDI input (browser permission)'}
+          >
+            <Icon name="midi" size={18} />
+          </button>
+        )}
       </div>
 
       <div className="toolbar-section position">

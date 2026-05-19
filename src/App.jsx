@@ -343,10 +343,10 @@ export default function App() {
     paramSnapshotRef.current = next;
   }, [engineReady, tracks, channels, registryVersion, engineRef]);
 
-  // MIDI input: enable on demand via window.__noa.enableMidi(trackId).
-  // Requesting MIDI access shows a browser permission prompt, so we don't
-  // auto-fire it on load — the user opts in by calling the helper (a UI
-  // affordance lands in a later phase).
+  // MIDI input: enable on demand via the Toolbar MIDI button or via
+  // window.__noa.enableMidi(trackId) from the console. Requesting MIDI
+  // access shows a browser permission prompt; we never auto-fire it.
+  const [midiInputCount, setMidiInputCount] = useState(0);
   const midiInputRef = useRef(null);
   const midiTargetTrackIdRef = useRef('t1');
   useEffect(() => {
@@ -373,20 +373,42 @@ export default function App() {
       }
       const access = await navigator.requestMIDIAccess();
       midiInputRef.current?.detachAll();
-      for (const input of access.inputs.values()) midiInputRef.current?.attach(input);
+      let count = 0;
+      for (const input of access.inputs.values()) {
+        midiInputRef.current?.attach(input);
+        count++;
+      }
+      setMidiInputCount(count);
       access.onstatechange = (e) => {
         if (e.port.type !== 'input') return;
         if (e.port.state === 'connected') midiInputRef.current?.attach(e.port);
         else midiInputRef.current?.detach(e.port);
+        setMidiInputCount((c) => e.port.state === 'connected' ? c + 1 : Math.max(0, c - 1));
       };
       return access;
     };
-    noa.disableMidi = () => midiInputRef.current?.detachAll();
+    noa.disableMidi = () => {
+      midiInputRef.current?.detachAll();
+      setMidiInputCount(0);
+    };
     return () => {
       midiInputRef.current?.detachAll();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engineReady]);
+
+  const toggleMidi = useCallback(async () => {
+    if (midiInputCount > 0) {
+      window.__noa?.disableMidi?.();
+      return;
+    }
+    try {
+      await window.__noa?.enableMidi?.(selectedTrackIdRef.current ?? 't1');
+    } catch (err) {
+      console.error('[noa] MIDI enable failed:', err);
+      alert('Could not enable MIDI: ' + (err?.message ?? err));
+    }
+  }, [midiInputCount]);
 
   // ClipScheduler — instantiated once the engine is ready, started/stopped
   // with the transport. Re-syncs its project copy on coordinator changes.
@@ -869,6 +891,8 @@ export default function App() {
         masterVol={channels.find((c) => c.id === 'm0')?.vol ?? 1}
         onMasterVol={(v) => dispatch({ type: 'SET_FADER', channelId: 'm0', value: v })}
         onTapTempo={tapTempo}
+        midiInputCount={midiInputCount}
+        onToggleMidi={toggleMidi}
         onSaveProject={saveProject}
         onLoadProject={loadProject}
         snapBeats={snapBeats}
