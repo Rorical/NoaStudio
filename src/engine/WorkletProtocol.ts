@@ -138,6 +138,25 @@ export class WorkletProtocol {
   }
 
   /**
+   * Ship decoded interleaved PCM to the worklet's AudioClipPlayer, keyed by
+   * `sampleHash`. The buffer is transferred (detached on the main thread), so
+   * callers must compute any peaks BEFORE calling this. Fire-and-forget.
+   */
+  loadSample(args: { sampleHash: number; pcm: Float32Array; channels: number; frames: number }): void {
+    if (this.disposed) return;
+    this.port.postMessage(
+      { type: 'LOAD_SAMPLE', sampleHash: args.sampleHash, channels: args.channels, frames: args.frames, pcm: args.pcm },
+      [args.pcm.buffer],
+    );
+  }
+
+  /** Drop a sample from the worklet's store. Fire-and-forget. */
+  unloadSample(args: { sampleHash: number }): void {
+    if (this.disposed) return;
+    this.port.postMessage({ type: 'UNLOAD_SAMPLE', sampleHash: args.sampleHash });
+  }
+
+  /**
    * Configure the worklet's loop region. The worklet pre-computes
    * loopStart/EndSamples from `bpm` + `sampleRate` once on receipt; callers
    * must re-send on BPM changes if they want the region to follow tempo.

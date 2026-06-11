@@ -4,11 +4,13 @@ import {
   EVENT_FRAME_SIZE,
   rewriteFrameOffset,
   EVT_NOTE_ON, EVT_NOTE_OFF, EVT_PARAM_SET, EVT_TRANSPORT, EVT_TEMPO,
+  EVT_AUDIO_ON, EVT_AUDIO_OFF,
   TRANSPORT_PLAY, TRANSPORT_STOP, TRANSPORT_PAUSE,
 } from './EngineEvent';
 import { PluginInstance } from './PluginInstance';
 import { PluginChain } from './PluginChain';
 import { MixerRouter, type RoutingConfig } from './MixerRouter';
+import { AudioClipPlayer } from './AudioClipPlayer';
 import { channelHash } from './channelHash';
 import type { PluginManifest } from './PluginManifest';
 
@@ -82,13 +84,29 @@ interface SetBypassMessage {
   bypass: boolean;
 }
 
+interface LoadSampleMessage {
+  type: 'LOAD_SAMPLE';
+  sampleHash: number;
+  channels: number;
+  frames: number;
+  /** Interleaved PCM, transferred from the main thread. */
+  pcm: Float32Array;
+}
+
+interface UnloadSampleMessage {
+  type: 'UNLOAD_SAMPLE';
+  sampleHash: number;
+}
+
 type WorkletInbound =
   | InstantiateMessage
   | DestroyMessage
   | ApplyPresetStateMessage
   | UpdateRoutingMessage
   | SetLoopMessage
-  | SetBypassMessage;
+  | SetBypassMessage
+  | LoadSampleMessage
+  | UnloadSampleMessage;
 
 interface PendingEvent {
   sampleTime: number;
@@ -101,6 +119,7 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
   private readonly telemetry: Uint32Array;
   private readonly telemetryF32: Float32Array;
   private readonly router = new MixerRouter(MAX_WORKLET_BLOCK);
+  private readonly audioPlayer = new AudioClipPlayer();
   private readonly outBus = new Float32Array(MAX_WORKLET_BLOCK * 2);
   private readonly eventFrame = new Uint8Array(EVENT_FRAME_SIZE);
   private readonly eventFrameView: DataView;
@@ -160,6 +179,12 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
           if (chain) chain.setBypass(m.slot, m.bypass);
           break;
         }
+        case 'LOAD_SAMPLE':
+          this.audioPlayer.loadSample(m.sampleHash, m.pcm, m.channels, m.frames);
+          break;
+        case 'UNLOAD_SAMPLE':
+          this.audioPlayer.removeSample(m.sampleHash);
+          break;
       }
     };
   }
@@ -282,6 +307,18 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
         rewriteFrameOffset(ev.frame, frameOffset);
         const targetId = view.getUint32(8, true);
         this.router.queueEvent(targetId, ev.frame);
+      } else if (type === EVT_AUDIO_ON) {
+        const frameOffset = ev.sampleTime <= blockStart ? 0 : ev.sampleTime - blockStart;
+        this.audioPlayer.startVoice(
+          view.getUint32(8, true),    // voiceId
+          view.getUint32(12, true),   // sampleHash
+          view.getUint32(16, true),   // channelHash
+          view.getUint32(20, true),   // startFrame
+          view.getFloat32(24, true),  // gain
+          frameOffset,
+        );
+      } else if (type === EVT_AUDIO_OFF) {
+        this.audioPlayer.stopVoice(view.getUint32(8, true));
       }
       this.releaseFrame(ev.frame);
       i++;
@@ -297,6 +334,7 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     } else if (command === TRANSPORT_STOP) {
       this.transportPlaying = false;
       this.playheadSamples = 0;
+      this.audioPlayer.stopAll();
     } else if (command === TRANSPORT_PAUSE) {
       this.transportPlaying = false;
     }
@@ -315,7 +353,7 @@ class NoaEngineProcessor extends AudioWorkletProcessor {
     this.dispatchPending(blockStart, blockEnd);
 
     const outStereo = this.outBus.subarray(0, blockSize * 2);
-    const meters = this.router.processBlock(blockSize, outStereo);
+    const meters = this.router.processBlock(blockSize, outStereo, this.audioPlayer);
 
     for (let i = 0; i < blockSize; i++) {
       left[i] = outStereo[i * 2]!;

@@ -21,9 +21,21 @@
  * tests inject deterministic stubs, production wires real PluginChains.
  */
 
+import { channelHash } from './channelHash';
+
 export interface RouterChain {
   processBlock(blockSize: number, outBus: Float32Array, inBus?: Float32Array): void;
   queueEventFrame(slot: number, frame: Uint8Array): void;
+}
+
+/**
+ * A non-plugin audio source (e.g. the AudioClipPlayer) mixed into channel input
+ * buses each block, after the generator chains and before the channel walk.
+ * `mixInto(channelHash)` returns the stereo input bus to add into, or undefined
+ * when that channel doesn't exist this block.
+ */
+export interface AuxAudioSource {
+  render(blockSize: number, mixInto: (channelHash: number) => Float32Array | undefined): void;
 }
 
 export interface TrackRouting {
@@ -82,6 +94,9 @@ export class MixerRouter {
   private readonly channelOut = new Map<string, Float32Array>();
   /** Reusable meters array — keeps allocations off the audio thread. */
   private readonly meters: ChannelMeter[] = [];
+  /** channelHash(id) → channelId, rebuilt on updateRouting so an AuxAudioSource
+   *  (which only carries hashes in its event frames) can resolve a channel. */
+  private channelByHash = new Map<number, string>();
 
   constructor(public readonly maxBlockSize: number) {}
 
@@ -117,9 +132,14 @@ export class MixerRouter {
 
   updateRouting(cfg: RoutingConfig): void {
     this.cfg = cfg;
+    this.channelByHash = new Map(cfg.channels.map((c) => [channelHash(c.id), c.id]));
   }
 
-  processBlock(blockSize: number, outStereo: Float32Array): ChannelMeter[] {
+  processBlock(
+    blockSize: number,
+    outStereo: Float32Array,
+    aux?: AuxAudioSource,
+  ): ChannelMeter[] {
     if (blockSize > this.maxBlockSize) {
       throw new Error(`MixerRouter.processBlock: blockSize ${blockSize} > maxBlockSize ${this.maxBlockSize}`);
     }
@@ -145,6 +165,17 @@ export class MixerRouter {
       } else if (gain !== 0) {
         for (let i = 0; i < blockSize * 2; i++) dest[i]! += scratch[i]! * gain;
       }
+    }
+
+    // Non-plugin audio sources (audio-clip voices) sum into channel input buses
+    // alongside generator output, so they pass through the channel's FX, pan,
+    // fader and sends just like a generator.
+    if (aux) {
+      aux.render(blockSize, (h) => {
+        const id = this.channelByHash.get(h);
+        if (id === undefined) return undefined;
+        return this.getOrAllocBuffer(this.channelInputs, id, blockSize);
+      });
     }
 
     this.meters.length = 0;

@@ -11,6 +11,7 @@ import {
   type LoadPluginResult,
 } from './WorkletProtocol';
 import { PluginWorker, type PreparedPreset } from './PluginWorker';
+import { channelHash } from './channelHash';
 import type { PluginManifest } from './PluginManifest';
 import type { RoutingConfig } from './MixerRouter';
 
@@ -244,6 +245,21 @@ export class EngineClient {
   /** Update the worklet's routing topology. Fire-and-forget. */
   updateRouting(config: RoutingConfig): void {
     this.protocol?.updateRouting(config);
+  }
+
+  /**
+   * Ship a decoded audio sample to the worklet's AudioClipPlayer. `pcm` is
+   * interleaved (channels) Float32 PCM and is TRANSFERRED — detached on the
+   * main thread — so compute peaks before calling. The sample is keyed by a
+   * hash of `sampleId`; the AudioClipScheduler emits the matching hash.
+   */
+  loadSample(sampleId: string, pcm: Float32Array, channels: number, frames: number): void {
+    this.protocol?.loadSample({ sampleHash: channelHash(sampleId), pcm, channels, frames });
+  }
+
+  /** Drop a sample from the worklet store. */
+  unloadSample(sampleId: string): void {
+    this.protocol?.unloadSample({ sampleHash: channelHash(sampleId) });
   }
 
   /** Configure the worklet's loop region. */

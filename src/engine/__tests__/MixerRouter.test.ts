@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MixerRouter, type RouterChain, type RoutingConfig } from '../MixerRouter';
+import { MixerRouter, type RouterChain, type RoutingConfig, type AuxAudioSource } from '../MixerRouter';
+import { channelHash } from '../channelHash';
 
 /**
  * Stub chain that fills its output buffer with a constant value. Pass-through
@@ -326,5 +327,64 @@ describe('MixerRouter — chain lifecycle', () => {
     const out = new Float32Array(16);
     router.processBlock(8, out);
     for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.7, 5);
+  });
+});
+
+/** Aux source that adds a constant into one channel's input bus each block. */
+class StubAux implements AuxAudioSource {
+  constructor(private readonly channelId: string, private readonly value: number) {}
+  render(blockSize: number, mixInto: (h: number) => Float32Array | undefined): void {
+    const buf = mixInto(channelHash(this.channelId));
+    if (!buf) return;
+    for (let i = 0; i < blockSize * 2; i++) buf[i]! += this.value;
+  }
+}
+
+describe('MixerRouter — aux audio source (audio clips)', () => {
+  it('mixes aux audio into a channel input and routes it to master', () => {
+    const router = new MixerRouter(8);
+    router.updateRouting(basicConfig());
+    const out = new Float32Array(16);
+    router.processBlock(8, out, new StubAux('m1', 0.25));
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.25, 5);
+  });
+
+  it('aux audio passes through the channel fader', () => {
+    const router = new MixerRouter(8);
+    const cfg = basicConfig();
+    cfg.channels[0]!.vol = 0.5; // m1 fader
+    router.updateRouting(cfg);
+    const out = new Float32Array(16);
+    router.processBlock(8, out, new StubAux('m1', 1));
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.5, 5);
+  });
+
+  it('aux audio sums with generator output on the same channel', () => {
+    const router = new MixerRouter(8);
+    router.installChain('t1', new StubChain(0.2));
+    router.updateRouting(basicConfig());
+    const out = new Float32Array(16);
+    router.processBlock(8, out, new StubAux('m1', 0.3));
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.5, 5);
+  });
+
+  it('mixInto resolves undefined for an unknown channel hash', () => {
+    const router = new MixerRouter(8);
+    router.updateRouting(basicConfig());
+    let resolved: Float32Array | undefined = new Float32Array(1);
+    const probe: AuxAudioSource = {
+      render: (_bs, mixInto) => { resolved = mixInto(channelHash('does-not-exist')); },
+    };
+    router.processBlock(8, new Float32Array(16), probe);
+    expect(resolved).toBeUndefined();
+  });
+
+  it('processBlock without an aux source is unchanged (back-compat)', () => {
+    const router = new MixerRouter(8);
+    router.installChain('t1', new StubChain(0.5));
+    router.updateRouting(basicConfig());
+    const out = new Float32Array(16);
+    router.processBlock(8, out);
+    for (let i = 0; i < 16; i++) expect(out[i]).toBeCloseTo(0.5, 5);
   });
 });

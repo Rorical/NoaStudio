@@ -28,6 +28,8 @@ export const EVT_NOTE_OFF = 2 as const;
 export const EVT_PARAM_SET = 3 as const;
 export const EVT_TRANSPORT = 4 as const;
 export const EVT_TEMPO = 5 as const;
+export const EVT_AUDIO_ON = 6 as const;
+export const EVT_AUDIO_OFF = 7 as const;
 
 export const TRANSPORT_STOP = 0 as const;
 export const TRANSPORT_PLAY = 1 as const;
@@ -71,8 +73,32 @@ export interface TempoEvent {
   bpm: number;
 }
 
+/**
+ * Start an audio-clip voice. Unlike NoteOn it targets no plugin instance —
+ * the worklet's AudioClipPlayer reads PCM (looked up by `sampleHash`) and mixes
+ * it straight into the channel input bus identified by `channelHash`. `voiceId`
+ * lets a later AudioOff stop this exact voice; `startFrame` is the intra-sample
+ * offset to begin reading at (for mid-clip starts).
+ */
+export interface AudioOnEvent {
+  type: typeof EVT_AUDIO_ON;
+  sampleTime: number;
+  voiceId: number;
+  sampleHash: number;
+  channelHash: number;
+  startFrame: number;
+  gain: number;
+}
+
+export interface AudioOffEvent {
+  type: typeof EVT_AUDIO_OFF;
+  sampleTime: number;
+  voiceId: number;
+}
+
 export type EngineEvent =
-  | NoteOnEvent | NoteOffEvent | ParamSetEvent | TransportEvent | TempoEvent;
+  | NoteOnEvent | NoteOffEvent | ParamSetEvent | TransportEvent | TempoEvent
+  | AudioOnEvent | AudioOffEvent;
 
 function viewOf(buf: Uint8Array): DataView {
   if (buf.length !== EVENT_FRAME_SIZE) {
@@ -111,6 +137,16 @@ export function encodeEvent(ev: EngineEvent, out: Uint8Array): void {
       return;
     case EVT_TEMPO:
       v.setFloat32(8, ev.bpm, true);
+      return;
+    case EVT_AUDIO_ON:
+      v.setUint32(8, ev.voiceId, true);
+      v.setUint32(12, ev.sampleHash, true);
+      v.setUint32(16, ev.channelHash, true);
+      v.setUint32(20, ev.startFrame, true);
+      v.setFloat32(24, ev.gain, true);
+      return;
+    case EVT_AUDIO_OFF:
+      v.setUint32(8, ev.voiceId, true);
       return;
   }
 }
@@ -152,6 +188,20 @@ export function decodeEvent(buf: Uint8Array): EngineEvent {
       return {
         type: EVT_TEMPO, sampleTime,
         bpm: v.getFloat32(8, true),
+      };
+    case EVT_AUDIO_ON:
+      return {
+        type: EVT_AUDIO_ON, sampleTime,
+        voiceId: v.getUint32(8, true),
+        sampleHash: v.getUint32(12, true),
+        channelHash: v.getUint32(16, true),
+        startFrame: v.getUint32(20, true),
+        gain: v.getFloat32(24, true),
+      };
+    case EVT_AUDIO_OFF:
+      return {
+        type: EVT_AUDIO_OFF, sampleTime,
+        voiceId: v.getUint32(8, true),
       };
     default:
       throw new Error(`unknown event type: ${type}`);
