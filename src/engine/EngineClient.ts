@@ -343,9 +343,23 @@ export class EngineClient {
     }
   }
 
-  /** Worklet's sample counter, low 32 bits. Wraps after ~24h at 48k. */
+  /** Worklet's loop-wrapping playhead in samples, low 32 bits. Wraps at the
+   *  loop boundary (and after ~24h at 48k). */
   currentSamplePosition(): number {
     return this.telemetry ? Atomics.load(this.telemetry, 0) >>> 0 : 0;
+  }
+
+  /**
+   * Monotonic sample count since the worklet started processing, reconstructed
+   * from the block counter (the render quantum is a fixed 128 frames). Unlike
+   * {@link currentSamplePosition} this never resets on a loop wrap, so it
+   * matches the clock the worklet's `dispatchPending` compares event
+   * sample-times against. Schedulers anchor absolute event sample-times here so
+   * events stay correctly ordered across loop wraps. Wraps with the u32 block
+   * counter (~24h at 48k), same horizon as the event frames' u32 sampleTime.
+   */
+  currentMonotonicSamples(): number {
+    return this.telemetry ? (Atomics.load(this.telemetry, 3) >>> 0) * 128 : 0;
   }
 
   /**

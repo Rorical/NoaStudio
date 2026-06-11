@@ -425,7 +425,7 @@ export default function App() {
     const sched = new ClipScheduler({
       sampleRate: engine.sampleRate,
       lookaheadSamples: Math.round(engine.sampleRate * 0.05), // 50 ms
-      readCurrentSample: () => engine.currentSamplePosition(),
+      readCurrentSample: () => engine.currentMonotonicSamples(),
       pushEvent: (frame) => { engine.pushEventFrame(frame); },
     });
     setScheduler(sched);
@@ -512,7 +512,7 @@ export default function App() {
     setAudioScheduler(new AudioClipScheduler({
       sampleRate: engine.sampleRate,
       lookaheadSamples: Math.round(engine.sampleRate * 0.05), // 50 ms
-      readCurrentSample: () => engine.currentSamplePosition(),
+      readCurrentSample: () => engine.currentMonotonicSamples(),
       pushEvent: (frame) => { engine.pushEventFrame(frame); },
     }));
   }, [engineReady, engineRef]);
@@ -723,7 +723,11 @@ export default function App() {
     if (!playing) return;
     const engine = engineRef.current;
     if (!engine) return;
-    const startSample = engine.currentSamplePosition();
+    // Anchor on the monotonic sample clock (not the wrapping playhead) so the
+    // absolute event sample-times the schedulers emit match the worklet's
+    // dispatch clock — correct across loop wraps. `beats` (from the wrapping
+    // playhead) supplies the musical position.
+    const startSample = engine.currentMonotonicSamples();
 
     if (scheduler) scheduler.start({ startSample, startBeat: time });
     if (audioScheduler) audioScheduler.start({ startSample, startBeat: time });
@@ -733,9 +737,10 @@ export default function App() {
     let raf;
     const tick = () => {
       const beats = engine.playheadBeats();
-      const samples = engine.currentSamplePosition();
-      // Loop wrap: the worklet snapped its playhead back; reset the scheduler
-      // anchors at the new (sample, beat) pair so clips after the wrap re-emit.
+      const samples = engine.currentMonotonicSamples();
+      // Loop wrap: the worklet snapped its playhead back; re-anchor the
+      // schedulers at the new (monotonic sample, wrapped beat) pair so clips
+      // after the wrap re-emit with correctly-ordered sample-times.
       if (beats < lastBeat) {
         if (scheduler) scheduler.reset({ startSample: samples, startBeat: beats });
         if (audioScheduler) audioScheduler.reset({ startSample: samples, startBeat: beats });
