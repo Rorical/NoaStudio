@@ -1,5 +1,5 @@
 import { enablePatches, produceWithPatches, type Patch } from 'immer';
-import type { Project, PluginInstance } from './projectModel';
+import type { Project, PluginInstance, Sample, Clip } from './projectModel';
 import { isProjectCompatible } from './projectModel';
 import type { Action } from './actions';
 
@@ -106,6 +106,24 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         if (!next) return;
         if (t.name === next) return;
         t.name = next;
+        return;
+      }
+      case 'IMPORT_AUDIO': {
+        // Register the sample (dedupe by id) and add an audio clip that plays
+        // it — one undoable step.
+        if (!draft.samples.some((s) => s.id === action.sample.id)) {
+          draft.samples.push({ ...action.sample } as Sample);
+        }
+        const clip: Clip = {
+          id: action.clip.id,
+          trackId: action.clip.trackId,
+          start: action.clip.start,
+          length: action.clip.length,
+          label: action.clip.label,
+          audio: true,
+          sampleId: action.sample.id,
+        };
+        draft.clips.push(clip);
         return;
       }
       case 'LOAD_PLUGIN': {

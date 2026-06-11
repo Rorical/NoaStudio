@@ -15,11 +15,13 @@ import { ClipScheduler } from './engine/ClipScheduler.ts';
 import { AudioClipScheduler } from './engine/AudioClipScheduler.ts';
 import { generateDemoSample } from './engine/generateDemoSample.ts';
 import { computePeaks } from './engine/computePeaks.ts';
+import { decodeAudioFile } from './engine/decodeAudioFile.ts';
 import { channelHash } from './engine/channelHash.ts';
 import { diffInstanceParams } from './engine/diffInstanceParams.ts';
 import { MidiInput } from './engine/MidiInput.ts';
 import { buildRoutingConfig } from './engine/routingConfig.ts';
 import { openOpfsPluginStore } from './sw/openOpfsPluginStore.js';
+import { openSampleStore } from './sw/openSampleStore.js';
 import { useDispatch, useProject, useUndoRedo } from './coordinator/useProject.js';
 import { findAdjacentClip, findClipOnAdjacentTrack } from './coordinator/findAdjacentClip.ts';
 import { calcTapBpm } from './coordinator/calcTapBpm.ts';
@@ -459,6 +461,30 @@ export default function App() {
   // already-loaded ids are skipped via loadedSamplesRef.
   const [samplePeaks, setSamplePeaks] = useState(() => new Map());
   const loadedSamplesRef = useRef(new Set());
+  const sampleStoreRef = useRef(null);
+
+  // Compute waveform peaks (mono mixdown, ~200 bins/sec) then ship the PCM to
+  // the worklet. MUST read pcm for peaks BEFORE loadSample, which transfers
+  // (detaches) the buffer.
+  const applyDecodedSample = useCallback((id, durationSec, data) => {
+    const engine = engineRef.current;
+    if (!engine || !data) return;
+    const { pcm, channels: ch, frames } = data;
+    const mono = new Float32Array(frames);
+    for (let f = 0; f < frames; f++) {
+      mono[f] = ch > 1 ? (pcm[f * ch] + pcm[f * ch + 1]) * 0.5 : pcm[f * ch];
+    }
+    const dur = durationSec || frames / engine.sampleRate;
+    const bins = Math.max(64, Math.min(4096, Math.round(dur * 200)));
+    const peaks = computePeaks(mono, bins);
+    setSamplePeaks((prev) => {
+      const next = new Map(prev);
+      next.set(id, peaks);
+      return next;
+    });
+    engine.loadSample(id, pcm, ch, frames);
+  }, [engineRef]);
+
   useEffect(() => {
     if (!engineReady) return;
     const engine = engineRef.current;
@@ -467,40 +493,56 @@ export default function App() {
     for (const s of samples) {
       if (loadedSamplesRef.current.has(s.id)) continue;
       loadedSamplesRef.current.add(s.id);
-      const materialize = async () => {
+      (async () => {
+        let data = null;
         if (s.source === 'synth') {
-          return generateDemoSample(engine.sampleRate, {
+          data = generateDemoSample(engine.sampleRate, {
             durationSec: s.durationSec,
             ...(s.freq ? { freq: s.freq } : {}),
           });
+        } else if (s.source === 'import') {
+          // Reload persisted PCM from OPFS (survives reload).
+          const store = sampleStoreRef.current ?? await openSampleStore();
+          sampleStoreRef.current = store;
+          data = store ? await store.read(s.id) : null;
         }
-        // source === 'import' — Increment B reloads decoded PCM from OPFS here.
-        return null;
-      };
-      Promise.resolve(materialize()).then((data) => {
         if (cancelled || !data) return;
-        // Waveform peaks from a mono mixdown (~200 bins/sec), computed before
-        // loadSample transfers (detaches) the PCM buffer.
-        const { pcm, channels: ch, frames } = data;
-        const mono = new Float32Array(frames);
-        for (let f = 0; f < frames; f++) {
-          mono[f] = ch > 1 ? (pcm[f * ch] + pcm[f * ch + 1]) * 0.5 : pcm[f * ch];
-        }
-        const bins = Math.max(64, Math.min(4096, Math.round(s.durationSec * 200)));
-        const peaks = computePeaks(mono, bins);
-        setSamplePeaks((prev) => {
-          const next = new Map(prev);
-          next.set(s.id, peaks);
-          return next;
-        });
-        engine.loadSample(s.id, pcm, ch, frames);
-      }).catch((err) => {
+        applyDecodedSample(s.id, s.durationSec, data);
+      })().catch((err) => {
         loadedSamplesRef.current.delete(s.id);
         console.error(`sample ${s.id} load failed:`, err);
       });
     }
     return () => { cancelled = true; };
-  }, [engineReady, samples, engineRef]);
+  }, [engineReady, samples, engineRef, applyDecodedSample]);
+
+  // Import an audio file dropped onto a track: decode to engine-rate PCM,
+  // persist to OPFS, load + show its waveform, and add an audio clip.
+  const importAudioFile = useCallback(async (trackId, startBeat, file) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    try {
+      const data = await decodeAudioFile(await file.arrayBuffer(), engine.sampleRate);
+      const id = 's_' + Math.random().toString(36).slice(2, 10);
+      const durationSec = data.frames / data.sampleRate;
+      const lengthBeats = Math.max(1, Math.ceil((durationSec * bpm) / 60));
+      // Persist (reads pcm) before applyDecodedSample transfers it.
+      const store = sampleStoreRef.current ?? await openSampleStore();
+      sampleStoreRef.current = store;
+      await store?.write(id, data);
+      loadedSamplesRef.current.add(id); // materialize effect should skip it
+      applyDecodedSample(id, durationSec, data);
+      const name = file.name.replace(/\.[^.]+$/, '') || 'Audio';
+      dispatch({
+        type: 'IMPORT_AUDIO',
+        sample: { id, name, source: 'import', channels: data.channels, sampleRate: data.sampleRate, frames: data.frames, durationSec },
+        clip: { id: 'c_' + Math.random().toString(36).slice(2, 10), trackId, start: Math.max(0, startBeat), length: lengthBeats, label: name },
+      });
+    } catch (err) {
+      console.error('audio import failed:', err);
+      alert('Could not import audio: ' + (err?.message ?? err));
+    }
+  }, [bpm, dispatch, applyDecodedSample, engineRef]);
 
   // AudioClipScheduler — sibling of ClipScheduler for PCM clips. Created once
   // the engine is ready, fed every track's channel + the audio clips.
@@ -1058,6 +1100,7 @@ export default function App() {
               tracks={tracks}
               clips={clips}
               samplePeaks={samplePeaks}
+              onImportAudioFile={importAudioFile}
               selectedClipId={selectedClipId}
               onSelectClip={setSelectedClipId}
               onMoveClip={moveClip}

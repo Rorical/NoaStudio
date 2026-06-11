@@ -10,6 +10,22 @@ export type Action =
   | { type: 'TOGGLE_TRACK_SOLO'; trackId: string }
   | { type: 'SET_TRACK_NAME'; trackId: string; name: string }
   | {
+      // Register a decoded audio sample and create an audio clip that plays it,
+      // in one undoable step (used by drag-an-audio-file import). The PCM lives
+      // in OPFS + the worklet, not the project — see projectModel.ts `Sample`.
+      type: 'IMPORT_AUDIO';
+      sample: {
+        id: string;
+        name: string;
+        source: 'import';
+        channels: number;
+        sampleRate: number;
+        frames: number;
+        durationSec: number;
+      };
+      clip: { id: string; trackId: string; start: number; length: number; label: string };
+    }
+  | {
       type: 'LOAD_PLUGIN';
       pluginId: string;
       target:

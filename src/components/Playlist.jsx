@@ -15,8 +15,19 @@ export default function Playlist({
   renamingClipId, onStartRenameClip, onCommitRenameClip,
   renamingTrackId, onStartRenameTrack, onCommitRenameTrack,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
-  samplePeaks,
+  samplePeaks, onImportAudioFile,
 }) {
+  const isAudioFileDrag = (e) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+  const onLaneFileDrop = (e, trackId) => {
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('audio/') && !/\.(wav|mp3|ogg|flac|m4a|aac)$/i.test(file.name)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    let beat = e.nativeEvent.offsetX / BEAT_PX;
+    if (snapBeats > 0) beat = Math.round(beat / snapBeats) * snapBeats;
+    onImportAudioFile?.(trackId, Math.max(0, beat), file);
+  };
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
   const scrollRef = useRef(null);
   const [drag, setDrag] = useState(null);
@@ -286,6 +297,8 @@ export default function Playlist({
                   key={t.id}
                   className={`track-row ${ti % 2 === 0 ? 'even' : 'odd'}`}
                   style={{ height: TRACK_H, top: ti * TRACK_H }}
+                  onDragOver={(e) => { if (isAudioFileDrag(e)) e.preventDefault(); }}
+                  onDrop={(e) => onLaneFileDrop(e, t.id)}
                 />
               ))}
 

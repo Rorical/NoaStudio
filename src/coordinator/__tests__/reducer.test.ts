@@ -760,3 +760,36 @@ describe('reducer — patches', () => {
     expect(inverse).toEqual([]);
   });
 });
+
+describe('reducer — IMPORT_AUDIO', () => {
+  const sample = {
+    id: 's_user1', name: 'My loop', source: 'import' as const,
+    channels: 2, sampleRate: 48000, frames: 96000, durationSec: 2,
+  };
+  const clip = { id: 'c_user1', trackId: 't8', start: 4, length: 4, label: 'My loop' };
+
+  it('registers the sample and adds an audio clip referencing it', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'IMPORT_AUDIO', sample, clip });
+    const s = s1.samples.find((x) => x.id === 's_user1');
+    expect(s).toMatchObject(sample);
+    const c = s1.clips.find((x) => x.id === 'c_user1');
+    expect(c).toMatchObject({ ...clip, audio: true, sampleId: 's_user1' });
+  });
+
+  it('dedupes the sample by id but still adds the clip', () => {
+    let s = seedProject();
+    [s] = run(s, { type: 'IMPORT_AUDIO', sample, clip });
+    const sampleCount = s.samples.length;
+    [s] = run(s, { type: 'IMPORT_AUDIO', sample, clip: { ...clip, id: 'c_user2', start: 8 } });
+    expect(s.samples.length).toBe(sampleCount); // no duplicate sample
+    expect(s.clips.filter((c) => c.sampleId === 's_user1')).toHaveLength(2);
+  });
+
+  it('is undoable (produces inverse patches)', () => {
+    const s0 = seedProject();
+    const [, patches, inverse] = run(s0, { type: 'IMPORT_AUDIO', sample, clip });
+    expect(patches.length).toBeGreaterThan(0);
+    expect(inverse.length).toBeGreaterThan(0);
+  });
+});
