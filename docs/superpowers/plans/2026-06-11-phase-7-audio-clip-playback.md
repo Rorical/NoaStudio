@@ -1,6 +1,10 @@
 # Phase 7 — Audio-clip PCM playback + real WaveformView
 
-**Status:** In progress (2026-06-11).
+**Status:** Increments A + B shipped 2026-06-11. Browser-verified: synth seed plays
++ shows a real waveform and re-triggers every loop; dropped audio files decode,
+resample, persist to OPFS, play, and survive reload. A latent scheduler clock bug
+(events anchored on the wrapping playhead vs the worklet's monotonic dispatch clock)
+was found and fixed along the way. 470 unit tests.
 
 **Delivers:** Audio clips stop being UI-only stubs. A clip with a `sampleId` plays real PCM
 through the engine, sample-accurately, routed through its track's channel (FX → fader → pan →
