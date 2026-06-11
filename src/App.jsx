@@ -496,6 +496,8 @@ export default function App() {
   const [snapBeats, setSnapBeats] = useState(0.25);
   /** Clip id currently being renamed via the inline input; null means none. */
   const [renamingClipId, setRenamingClipId] = useState(null);
+  /** Track id currently being renamed via the inline input; null means none. */
+  const [renamingTrackId, setRenamingTrackId] = useState(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -559,9 +561,16 @@ export default function App() {
           e.preventDefault();
           setSelectedClipId(next);
         }
-      } else if (e.key === 'F2' && selectedClipIdRef.current) {
-        e.preventDefault();
-        setRenamingClipId(selectedClipIdRef.current);
+      } else if (e.key === 'F2') {
+        // F2 prefers the selected clip; falls back to renaming the selected
+        // track if no clip is selected.
+        if (selectedClipIdRef.current) {
+          e.preventDefault();
+          setRenamingClipId(selectedClipIdRef.current);
+        } else if (selectedTrackIdRef.current) {
+          e.preventDefault();
+          setRenamingTrackId(selectedTrackIdRef.current);
+        }
       } else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && selectedClipIdRef.current) {
         const next = findClipOnAdjacentTrack(
           clipsRef.current ?? [],
@@ -969,6 +978,14 @@ export default function App() {
               }}
               selectedTrackId={selectedTrackId}
               onSelectTrack={setSelectedTrackId}
+              renamingTrackId={renamingTrackId}
+              onStartRenameTrack={setRenamingTrackId}
+              onCommitRenameTrack={(id, name) => {
+                setRenamingTrackId(null);
+                if (name && name.trim()) {
+                  dispatch({ type: 'SET_TRACK_NAME', trackId: id, name });
+                }
+              }}
               snapBeats={snapBeats}
               loopStart={loopRegion.start}
               loopEnd={loopRegion.end}

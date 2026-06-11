@@ -13,6 +13,7 @@ export default function Playlist({
   selectedTrackId, onSelectTrack, snapBeats = 0.25,
   loopStart, loopEnd, onSetLoopRegion,
   renamingClipId, onStartRenameClip, onCommitRenameClip,
+  renamingTrackId, onStartRenameTrack, onCommitRenameTrack,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
 }) {
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
@@ -164,7 +165,17 @@ export default function Playlist({
               <div className="track-color-bar" />
               <div className="track-num mono">{String(i + 1).padStart(2, '0')}</div>
               <div className="track-info">
-                <div className="track-name">{t.name}</div>
+                <div
+                  className="track-name"
+                  onDoubleClick={(e) => { e.stopPropagation(); onStartRenameTrack?.(t.id); }}
+                >
+                  {renamingTrackId === t.id ? (
+                    <ClipRenameInput
+                      initial={t.name}
+                      onCommit={(name) => onCommitRenameTrack?.(t.id, name)}
+                    />
+                  ) : t.name}
+                </div>
                 <div className="track-gen">
                   <Icon name={t.type === 'midi' ? 'synth' : 'audio'} size={11} />
                   <span className="track-gen-name">

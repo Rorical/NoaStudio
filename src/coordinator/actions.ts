@@ -8,6 +8,7 @@ export type Action =
   | { type: 'SET_CLIP_LABEL'; clipId: string; label: string }
   | { type: 'TOGGLE_TRACK_MUTE'; trackId: string }
   | { type: 'TOGGLE_TRACK_SOLO'; trackId: string }
+  | { type: 'SET_TRACK_NAME'; trackId: string; name: string }
   | {
       type: 'LOAD_PLUGIN';
       pluginId: string;

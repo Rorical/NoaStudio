@@ -173,6 +173,42 @@ describe('reducer — tracks (with channel cascade)', () => {
   });
 });
 
+describe('reducer — SET_TRACK_NAME', () => {
+  it('renames a track', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'SET_TRACK_NAME', trackId: 't1', name: 'Bass Drum' });
+    expect(s1.tracks.find((t) => t.id === 't1')!.name).toBe('Bass Drum');
+  });
+
+  it('trims whitespace', () => {
+    const s0 = seedProject();
+    const [s1] = run(s0, { type: 'SET_TRACK_NAME', trackId: 't1', name: '  Boom  ' });
+    expect(s1.tracks.find((t) => t.id === 't1')!.name).toBe('Boom');
+  });
+
+  it('rejects empty/whitespace names', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'SET_TRACK_NAME', trackId: 't1', name: '  ' });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('is a no-op when the name is unchanged', () => {
+    const s0 = seedProject();
+    const orig = s0.tracks.find((t) => t.id === 't1')!.name;
+    const [s1, patches] = run(s0, { type: 'SET_TRACK_NAME', trackId: 't1', name: orig });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+
+  it('is a no-op for unknown trackId', () => {
+    const s0 = seedProject();
+    const [s1, patches] = run(s0, { type: 'SET_TRACK_NAME', trackId: 'tZZ', name: 'X' });
+    expect(s1).toBe(s0);
+    expect(patches).toEqual([]);
+  });
+});
+
 describe('reducer — channels', () => {
   it('SET_FADER updates vol', () => {
     const s0 = seedProject();

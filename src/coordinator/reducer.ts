@@ -99,6 +99,15 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         if (ch) ch.solo = !ch.solo;
         return;
       }
+      case 'SET_TRACK_NAME': {
+        const t = draft.tracks.find((x) => x.id === action.trackId);
+        if (!t) return;
+        const next = action.name.trim();
+        if (!next) return;
+        if (t.name === next) return;
+        t.name = next;
+        return;
+      }
       case 'LOAD_PLUGIN': {
         const inst: PluginInstance = {
           id: action.instanceId ?? mintInstanceId(),
