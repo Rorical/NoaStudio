@@ -15,6 +15,7 @@ export default function Playlist({
   renamingClipId, onStartRenameClip, onCommitRenameClip,
   renamingTrackId, onStartRenameTrack, onCommitRenameTrack,
   pluginCatalog, trackColors, onSoloTrack, onMuteTrack,
+  samplePeaks,
 }) {
   const lookup = (pluginId) => pluginCatalog?.get?.(pluginId);
   const scrollRef = useRef(null);
@@ -297,6 +298,7 @@ export default function Playlist({
                   <ClipView
                     key={clip.id}
                     clip={clip}
+                    peaks={clip.audio ? samplePeaks?.get?.(clip.sampleId) : undefined}
                     track={t}
                     color={trackColors[t.color]}
                     top={ti * TRACK_H + 3}
@@ -323,7 +325,7 @@ export default function Playlist({
   );
 }
 
-function ClipView({ clip, color, top, height, selected, renaming, onMouseDown, onResizeMouseDown, onDoubleClick, onLabelDoubleClick, onCommitRename }) {
+function ClipView({ clip, peaks, color, top, height, selected, renaming, onMouseDown, onResizeMouseDown, onDoubleClick, onLabelDoubleClick, onCommitRename }) {
   const w = clip.length * BEAT_PX;
   const x = clip.start * BEAT_PX;
 
@@ -344,7 +346,7 @@ function ClipView({ clip, color, top, height, selected, renaming, onMouseDown, o
       </div>
       <div className="clip-body">
         {clip.audio
-          ? <ClipWaveform width={w} height={height - 16} />
+          ? <ClipWaveform width={w} height={height - 16} peaks={peaks} />
           : <ClipMidiPreview pattern={clip.pattern} length={clip.length} width={w} height={height - 16} />}
       </div>
       <div
@@ -394,28 +396,47 @@ function ClipMidiPreview({ pattern, length, width, height }) {
   );
 }
 
-function ClipWaveform({ width, height }) {
-  const points = [];
-  const N = Math.max(20, Math.floor(width / 3));
-  for (let i = 0; i < N; i++) {
-    const t = i / N;
-    const a = Math.sin(t * 12) * 0.4 + Math.sin(t * 31) * 0.3 + Math.sin(t * 7 + 1.2) * 0.3;
-    points.push(Math.abs(a) * height / 2 * 0.9 + 1);
-  }
+/**
+ * Real min/max waveform from precomputed peaks (Int8 interleaved [min,max]
+ * pairs, each -128..127 mapping to -1..1). Re-bins the peak array to ~width/2
+ * pixel columns and draws a filled envelope: the max contour left→right, then
+ * the min contour right→left. Falls back to a flat baseline when the sample's
+ * peaks aren't loaded yet (or the clip has no sample).
+ */
+function ClipWaveform({ width, height, peaks }) {
   const mid = height / 2;
+  if (!peaks || peaks.length < 2) {
+    return (
+      <svg className="clip-wave" width={width} height={height}>
+        <line x1={0} y1={mid} x2={width} y2={mid} stroke="currentColor" strokeWidth="1" opacity="0.3" />
+      </svg>
+    );
+  }
+  const srcBins = peaks.length >> 1;
+  const cols = Math.max(1, Math.min(srcBins, Math.floor(width / 2)));
+  const amp = (height / 2) * 0.92;
+  let top = '';
+  let bottom = '';
+  for (let c = 0; c < cols; c++) {
+    const b0 = Math.floor((c * srcBins) / cols);
+    const b1 = Math.max(b0 + 1, Math.floor(((c + 1) * srcBins) / cols));
+    let mn = 127;
+    let mx = -128;
+    for (let b = b0; b < b1 && b < srcBins; b++) {
+      const lo = peaks[b * 2];
+      const hi = peaks[b * 2 + 1];
+      if (lo < mn) mn = lo;
+      if (hi > mx) mx = hi;
+    }
+    const xc = ((c / cols) * width).toFixed(2);
+    const yTop = (mid - (mx / 127) * amp).toFixed(2);
+    const yBot = (mid - (mn / 127) * amp).toFixed(2);
+    top += `${c === 0 ? 'M' : 'L'}${xc} ${yTop} `;
+    bottom = `L${xc} ${yBot} ` + bottom;
+  }
   return (
     <svg className="clip-wave" width={width} height={height}>
-      <path
-        d={
-          `M0 ${mid} ` +
-          points.map((p, i) => `L${(i / N) * width} ${mid - p}`).join(' ') +
-          ` L${width} ${mid} ` +
-          points.map((p, i) => `L${((N - 1 - i) / N) * width} ${mid + p}`).join(' ') +
-          ' Z'
-        }
-        fill="currentColor"
-        opacity="0.78"
-      />
+      <path d={top + bottom + 'Z'} fill="currentColor" opacity="0.78" />
     </svg>
   );
 }

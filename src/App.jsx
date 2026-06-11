@@ -12,6 +12,9 @@ import { bootBuiltinRegistry } from './engine/bootBuiltins.js';
 import { PluginInstaller } from './engine/PluginInstaller.ts';
 import { PluginRegistry } from './engine/PluginRegistry.ts';
 import { ClipScheduler } from './engine/ClipScheduler.ts';
+import { AudioClipScheduler } from './engine/AudioClipScheduler.ts';
+import { generateDemoSample } from './engine/generateDemoSample.ts';
+import { computePeaks } from './engine/computePeaks.ts';
 import { channelHash } from './engine/channelHash.ts';
 import { diffInstanceParams } from './engine/diffInstanceParams.ts';
 import { MidiInput } from './engine/MidiInput.ts';
@@ -27,6 +30,7 @@ import { calcTapBpm } from './coordinator/calcTapBpm.ts';
 const selectTracks = (p) => p.tracks;
 const selectClips = (p) => p.clips;
 const selectChannels = (p) => p.channels;
+const selectSamples = (p) => p.samples;
 const selectBpm = (p) => p.bpm;
 const selectLoop = (p) => p.loop;
 const selectMetronome = (p) => p.metronome;
@@ -39,6 +43,7 @@ export default function App() {
   const tracks = useProject(selectTracks);
   const clips = useProject(selectClips);
   const channels = useProject(selectChannels);
+  const samples = useProject(selectSamples);
   const dispatch = useDispatch();
   const { canUndo, canRedo, undo, redo } = useUndoRedo();
   const [selectedClipId, setSelectedClipId] = useState('c20');
@@ -447,6 +452,94 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheduler, tracks, clips, bpm, registryVersion, engineRef]);
 
+  // Audio samples: materialize PCM for each referenced sample once the engine
+  // is ready, compute its waveform peaks for the playlist, and ship the PCM to
+  // the worklet. Synth samples regenerate deterministically; imported samples
+  // load from OPFS (Increment B). Re-runs when the samples table changes;
+  // already-loaded ids are skipped via loadedSamplesRef.
+  const [samplePeaks, setSamplePeaks] = useState(() => new Map());
+  const loadedSamplesRef = useRef(new Set());
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    let cancelled = false;
+    for (const s of samples) {
+      if (loadedSamplesRef.current.has(s.id)) continue;
+      loadedSamplesRef.current.add(s.id);
+      const materialize = async () => {
+        if (s.source === 'synth') {
+          return generateDemoSample(engine.sampleRate, {
+            durationSec: s.durationSec,
+            ...(s.freq ? { freq: s.freq } : {}),
+          });
+        }
+        // source === 'import' — Increment B reloads decoded PCM from OPFS here.
+        return null;
+      };
+      Promise.resolve(materialize()).then((data) => {
+        if (cancelled || !data) return;
+        // Waveform peaks from a mono mixdown (~200 bins/sec), computed before
+        // loadSample transfers (detaches) the PCM buffer.
+        const { pcm, channels: ch, frames } = data;
+        const mono = new Float32Array(frames);
+        for (let f = 0; f < frames; f++) {
+          mono[f] = ch > 1 ? (pcm[f * ch] + pcm[f * ch + 1]) * 0.5 : pcm[f * ch];
+        }
+        const bins = Math.max(64, Math.min(4096, Math.round(s.durationSec * 200)));
+        const peaks = computePeaks(mono, bins);
+        setSamplePeaks((prev) => {
+          const next = new Map(prev);
+          next.set(s.id, peaks);
+          return next;
+        });
+        engine.loadSample(s.id, pcm, ch, frames);
+      }).catch((err) => {
+        loadedSamplesRef.current.delete(s.id);
+        console.error(`sample ${s.id} load failed:`, err);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [engineReady, samples, engineRef]);
+
+  // AudioClipScheduler — sibling of ClipScheduler for PCM clips. Created once
+  // the engine is ready, fed every track's channel + the audio clips.
+  const [audioScheduler, setAudioScheduler] = useState(null);
+  useEffect(() => {
+    if (!engineReady) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    setAudioScheduler(new AudioClipScheduler({
+      sampleRate: engine.sampleRate,
+      lookaheadSamples: Math.round(engine.sampleRate * 0.05), // 50 ms
+      readCurrentSample: () => engine.currentSamplePosition(),
+      pushEvent: (frame) => { engine.pushEventFrame(frame); },
+    }));
+  }, [engineReady, engineRef]);
+
+  useEffect(() => {
+    if (!audioScheduler) return;
+    audioScheduler.setProject({
+      bpm,
+      // All tracks (with channel + solo/mute) so cross-type solo stays
+      // consistent with the MIDI scheduler. Audio clips route to 'm'+channel.
+      tracks: tracks.map((t) => ({
+        id: t.id,
+        channelId: 'm' + t.channel,
+        mute: !!t.mute,
+        solo: !!t.solo,
+      })),
+      clips: clips
+        .filter((c) => c.sampleId)
+        .map((c) => ({
+          trackId: c.trackId,
+          start: c.start,
+          length: c.length,
+          sampleId: c.sampleId,
+        })),
+    });
+  }, [audioScheduler, tracks, clips, bpm]);
+
   // Find a PluginInstance by id across tracks + channels. Used by the open
   // plugin windows to pull the current params for HELLO.
   const findInstance = useCallback((instanceId) => {
@@ -633,6 +726,7 @@ export default function App() {
     const startSample = engine.currentSamplePosition();
 
     if (scheduler) scheduler.start({ startSample, startBeat: time });
+    if (audioScheduler) audioScheduler.start({ startSample, startBeat: time });
     let lastBeat = time;
     let lastSample = startSample;
 
@@ -641,23 +735,26 @@ export default function App() {
       const beats = engine.playheadBeats();
       const samples = engine.currentSamplePosition();
       // Loop wrap: the worklet snapped its playhead back; reset the scheduler
-      // anchor at the new (sample, beat) pair so notes after the wrap re-emit.
-      if (beats < lastBeat && scheduler) {
-        scheduler.reset({ startSample: samples, startBeat: beats });
+      // anchors at the new (sample, beat) pair so clips after the wrap re-emit.
+      if (beats < lastBeat) {
+        if (scheduler) scheduler.reset({ startSample: samples, startBeat: beats });
+        if (audioScheduler) audioScheduler.reset({ startSample: samples, startBeat: beats });
       }
       lastBeat = beats;
       lastSample = samples;
       setTime(beats);
       if (scheduler) scheduler.tick();
+      if (audioScheduler) audioScheduler.tick();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
       if (scheduler) scheduler.stop();
+      if (audioScheduler) audioScheduler.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, engineRef, scheduler]);
+  }, [playing, engineRef, scheduler, audioScheduler]);
 
   // Map from FNV-1a hash → channel id. Built once per channel-list change so
   // the meter RAF can route incoming frames back to ids without serialising
@@ -955,6 +1052,7 @@ export default function App() {
             <Playlist
               tracks={tracks}
               clips={clips}
+              samplePeaks={samplePeaks}
               selectedClipId={selectedClipId}
               onSelectClip={setSelectedClipId}
               onMoveClip={moveClip}
