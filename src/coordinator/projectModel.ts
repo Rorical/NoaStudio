@@ -1,5 +1,5 @@
 // @ts-expect-error data.js is loose JS, this is the one place we type-launder it.
-import { DEMO_TRACKS, DEMO_CLIPS, DEMO_CHANNELS } from '../data.js';
+import { DEMO_TRACKS, DEMO_CLIPS, DEMO_CHANNELS, DEMO_SAMPLES } from '../data.js';
 
 /**
  * One plugin instance — a loaded WASM plugin on a channel's FX rack or a track's
@@ -41,6 +41,28 @@ export interface Clip {
   label: string;
   pattern?: Pattern;
   audio?: boolean;
+  /** For audio clips: the id of the {@link Sample} this clip plays. */
+  sampleId?: string;
+}
+
+/**
+ * A decoded audio sample referenced by one or more audio clips. The project
+ * holds only this lightweight metadata — the raw PCM lives in the engine
+ * worklet (shipped via EngineClient.loadSample) and, for imported samples, in
+ * an OPFS sample store. `source` tells the boot path how to re-materialize the
+ * PCM: `'synth'` regenerates it deterministically from `generateDemoSample`;
+ * `'import'` reloads the persisted bytes from OPFS.
+ */
+export interface Sample {
+  id: string;
+  name: string;
+  source: 'synth' | 'import';
+  channels: number;
+  sampleRate: number;
+  frames: number;
+  durationSec: number;
+  /** For `source: 'synth'` — the fundamental passed to generateDemoSample. */
+  freq?: number;
 }
 
 export interface Channel {
@@ -80,13 +102,15 @@ export interface InstalledPlugin {
  * discarded by the coordinator on load (a future migration pass can run
  * here instead).
  */
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export interface Project {
   schemaVersion: number;
   tracks: Track[];
   clips: Clip[];
   channels: Channel[];
+  /** Audio samples referenced by audio clips' `sampleId`. */
+  samples: Sample[];
   bpm: number;
   loop: boolean;
   /** Loop region in beats, [start, end). Honored when `loop` is true. */
@@ -109,6 +133,7 @@ export function isProjectCompatible(p: unknown): p is Project {
     && Array.isArray(o.tracks)
     && Array.isArray(o.clips)
     && Array.isArray(o.channels)
+    && Array.isArray(o.samples)
     && Array.isArray(o.installedPlugins)
     && typeof o.bpm === 'number'
     && typeof o.loopStartBeats === 'number'
@@ -126,6 +151,7 @@ export function seedProject(): Project {
     tracks: structuredClone(DEMO_TRACKS) as Track[],
     clips: structuredClone(DEMO_CLIPS) as Clip[],
     channels: structuredClone(DEMO_CHANNELS) as Channel[],
+    samples: structuredClone(DEMO_SAMPLES) as Sample[],
     bpm: 124,
     loop: true,
     loopStartBeats: 0,

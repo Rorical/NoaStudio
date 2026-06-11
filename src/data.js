@@ -66,8 +66,17 @@ export const DEMO_CLIPS = [
   { id:'c21', trackId:'t6', start:20, length:4, pattern: LEAD_PATTERN, label:'Lead hook' },
   { id:'c22', trackId:'t7', start:8,  length:4, pattern: ARP_PATTERN,  label:'Arp' },
   { id:'c23', trackId:'t7', start:16, length:8, pattern: ARP_PATTERN,  label:'Arp' },
-  { id:'c24', trackId:'t8', start:12, length:4, audio: true, label:'Vox hook' },
-  { id:'c25', trackId:'t8', start:20, length:4, audio: true, label:'Vox hook' },
+  { id:'c24', trackId:'t8', start:12, length:4, audio: true, sampleId:'s_vox', label:'Vox hook' },
+  { id:'c25', trackId:'t8', start:20, length:4, audio: true, sampleId:'s_vox', label:'Vox hook' },
+];
+
+// Audio samples referenced by audio clips. The demo ships one procedurally-
+// synthesized "vox" sample (no binary asset): the engine regenerates its PCM
+// deterministically on boot via generateDemoSample and computes its waveform
+// peaks. frames/sampleRate here are nominal — the real PCM is rendered at the
+// AudioContext's actual sample rate. See projectModel.ts `Sample`.
+export const DEMO_SAMPLES = [
+  { id:'s_vox', name:'Vox hook', source:'synth', channels:2, sampleRate:48000, frames:76800, durationSec:1.6, freq:330 },
 ];
 
 // Master gets the one real effect (com.noa.gain). Other channels start empty —

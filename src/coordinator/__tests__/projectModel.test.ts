@@ -52,6 +52,26 @@ describe('seedProject', () => {
   it('stamps the current schema version', () => {
     expect(seedProject().schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
+
+  it('seeds at least one audio sample', () => {
+    const p = seedProject();
+    expect(p.samples.length).toBeGreaterThan(0);
+    const vox = p.samples.find((s) => s.id === 's_vox');
+    expect(vox).toBeDefined();
+    expect(vox?.source).toBe('synth');
+    expect(vox?.channels).toBe(2);
+  });
+
+  it('every audio clip references a seeded sample', () => {
+    const p = seedProject();
+    const sampleIds = new Set(p.samples.map((s) => s.id));
+    for (const c of p.clips) {
+      if (c.audio) {
+        expect(c.sampleId).toBeDefined();
+        expect(sampleIds.has(c.sampleId!)).toBe(true);
+      }
+    }
+  });
 });
 
 describe('isProjectCompatible', () => {
@@ -84,6 +104,13 @@ describe('isProjectCompatible', () => {
     const p = seedProject();
     // @ts-expect-error simulating a broken save
     delete p.installedPlugins;
+    expect(isProjectCompatible(p)).toBe(false);
+  });
+
+  it('rejects projects missing the samples array (pre-schema-4 saves)', () => {
+    const p = seedProject();
+    // @ts-expect-error simulating an older save without samples
+    delete p.samples;
     expect(isProjectCompatible(p)).toBe(false);
   });
 
