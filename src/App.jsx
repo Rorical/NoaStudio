@@ -459,7 +459,7 @@ export default function App() {
   // Audio samples: materialize PCM for each referenced sample once the engine
   // is ready, compute its waveform peaks for the playlist, and ship the PCM to
   // the worklet. Synth samples regenerate deterministically; imported samples
-  // load from OPFS (Increment B). Re-runs when the samples table changes;
+  // reload from OPFS. Re-runs when the samples table changes;
   // already-loaded ids are skipped via loadedSamplesRef.
   const [samplePeaks, setSamplePeaks] = useState(() => new Map());
   const loadedSamplesRef = useRef(new Set());
