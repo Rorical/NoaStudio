@@ -64,6 +64,9 @@ export class AudioClipScheduler {
   private active: ActiveVoice[] = [];
   /** Monotonic per-voice id (wraps in u32, never 0). */
   private nextVoiceId = 1;
+  /** Set on start()/reset(); the next tick triggers any clip already underway
+   *  at the anchor beat (transport started, or a loop re-anchored, mid-clip). */
+  private straddlePending = false;
   private readonly frame = new Uint8Array(EVENT_FRAME_SIZE);
 
   constructor(private readonly deps: AudioClipSchedulerDeps) {}
@@ -77,6 +80,7 @@ export class AudioClipScheduler {
     this.startBeat = args.startBeat;
     this.cursorBeat = args.startBeat;
     this.running = true;
+    this.straddlePending = true;
   }
 
   /**
@@ -100,6 +104,7 @@ export class AudioClipScheduler {
     this.startSample = args.startSample;
     this.startBeat = args.startBeat;
     this.cursorBeat = args.startBeat;
+    this.straddlePending = true;
     const currentSample = this.deps.readCurrentSample();
     this.active = this.active.filter((a) => a.offSampleTime > currentSample);
   }
@@ -117,9 +122,32 @@ export class AudioClipScheduler {
       this.active = this.active.filter((a) => a.offSampleTime > currentSample);
     }
 
-    if (horizonBeat <= this.cursorBeat) return;
-
     const anySolo = project.tracks.some((t) => t.solo);
+
+    // One-time straddle scan: trigger clips whose body already contains the
+    // anchor beat (transport started, or a loop re-anchored, mid-clip). Plays
+    // them from the correct intra-sample offset rather than dropping them.
+    if (this.straddlePending) {
+      this.straddlePending = false;
+      for (const track of project.tracks) {
+        if (anySolo ? !track.solo : track.mute) continue;
+        const chHash = channelHash(track.channelId);
+        for (const clip of project.clips) {
+          if (clip.trackId !== track.id || !clip.sampleId) continue;
+          if (clip.start >= this.cursorBeat || clip.start + clip.length <= this.cursorBeat) continue;
+          const startFrame = Math.round((this.cursorBeat - clip.start) * samplesPerBeat);
+          const offsetSample = Math.round(
+            this.startSample + (clip.start + clip.length - this.startBeat) * samplesPerBeat,
+          );
+          const voiceId = this.mintVoiceId();
+          this.emitAudioOn(voiceId, channelHash(clip.sampleId), chHash, clip.gain ?? 1, currentSample, startFrame);
+          this.emitAudioOff(voiceId, offsetSample);
+          this.active.push({ voiceId, offSampleTime: offsetSample, channelHash: chHash });
+        }
+      }
+    }
+
+    if (horizonBeat <= this.cursorBeat) return;
 
     for (const track of project.tracks) {
       if (anySolo ? !track.solo : track.mute) continue;
@@ -153,11 +181,12 @@ export class AudioClipScheduler {
   }
 
   private emitAudioOn(
-    voiceId: number, sampleHash: number, channelHash: number, gain: number, sampleTime: number,
+    voiceId: number, sampleHash: number, channelHash: number, gain: number,
+    sampleTime: number, startFrame = 0,
   ): void {
     encodeEvent({
       type: EVT_AUDIO_ON, sampleTime,
-      voiceId, sampleHash, channelHash, startFrame: 0, gain,
+      voiceId, sampleHash, channelHash, startFrame, gain,
     }, this.frame);
     this.deps.pushEvent(this.frame);
   }

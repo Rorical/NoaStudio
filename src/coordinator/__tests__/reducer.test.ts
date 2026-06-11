@@ -793,3 +793,35 @@ describe('reducer — IMPORT_AUDIO', () => {
     expect(inverse.length).toBeGreaterThan(0);
   });
 });
+
+describe('reducer — sample lifecycle', () => {
+  const sample = {
+    id: 's_gc', name: 'gc', source: 'import' as const,
+    channels: 2, sampleRate: 48000, frames: 100, durationSec: 0.01,
+  };
+
+  it('DELETE_CLIP garbage-collects an orphaned sample', () => {
+    let s = seedProject();
+    [s] = run(s, { type: 'IMPORT_AUDIO', sample, clip: { id: 'c_a', trackId: 't8', start: 0, length: 2, label: 'a' } });
+    expect(s.samples.some((x) => x.id === 's_gc')).toBe(true);
+    [s] = run(s, { type: 'DELETE_CLIP', clipId: 'c_a' });
+    expect(s.clips.some((c) => c.id === 'c_a')).toBe(false);
+    expect(s.samples.some((x) => x.id === 's_gc')).toBe(false); // GC'd
+  });
+
+  it('DELETE_CLIP keeps a sample still referenced by another clip', () => {
+    let s = seedProject();
+    [s] = run(s, { type: 'IMPORT_AUDIO', sample, clip: { id: 'c_a', trackId: 't8', start: 0, length: 2, label: 'a' } });
+    [s] = run(s, { type: 'IMPORT_AUDIO', sample, clip: { id: 'c_b', trackId: 't8', start: 4, length: 2, label: 'b' } });
+    [s] = run(s, { type: 'DELETE_CLIP', clipId: 'c_a' });
+    expect(s.samples.some((x) => x.id === 's_gc')).toBe(true); // still used by c_b
+  });
+
+  it('LOAD_PROJECT restores the samples table', () => {
+    let s = seedProject();
+    [s] = run(s, { type: 'IMPORT_AUDIO', sample, clip: { id: 'c_a', trackId: 't8', start: 0, length: 2, label: 'a' } });
+    const exported = structuredClone(s);
+    const [loaded] = run(seedProject(), { type: 'LOAD_PROJECT', project: exported });
+    expect(loaded.samples.some((x) => x.id === 's_gc')).toBe(true);
+  });
+});

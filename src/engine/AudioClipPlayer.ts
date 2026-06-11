@@ -117,6 +117,18 @@ export class AudioClipPlayer {
         v.cursor++;
       }
     }
-    if (anyDead) this.voices = this.voices.filter((v) => v.active);
+    // Compact dead voices in place — no audio-thread allocation (matches the
+    // framePool / reusable-meters convention used elsewhere in the engine).
+    if (anyDead) {
+      let w = 0;
+      for (let r = 0; r < this.voices.length; r++) {
+        const v = this.voices[r]!;
+        if (v.active) {
+          if (w !== r) this.voices[w] = v;
+          w++;
+        }
+      }
+      this.voices.length = w;
+    }
   }
 }

@@ -36,10 +36,16 @@ export function decodeSample(bytes: Uint8Array): SampleData {
   const channels = view.getUint32(0, true);
   const frames = view.getUint32(4, true);
   const sampleRate = view.getUint32(8, true);
+  // Validate the header against the actual PCM payload so a truncated/corrupt
+  // blob can't produce a too-short PCM array with a large `frames` (which would
+  // let the worklet's playback cursor read past the end → NaN in the mix).
+  const pcmBytes = bytes.subarray(HEADER_BYTES);
+  if (channels < 1 || pcmBytes.byteLength < frames * channels * 4) {
+    throw new Error('SampleStore: corrupt sample blob (header/payload mismatch)');
+  }
   // Copy the PCM region into its own (4-byte-aligned) buffer — the source may be
   // an unaligned subview.
-  const pcmBytes = bytes.subarray(HEADER_BYTES);
-  const pcm = new Float32Array(pcmBytes.byteLength >> 2);
+  const pcm = new Float32Array(frames * channels);
   new Uint8Array(pcm.buffer).set(pcmBytes.subarray(0, pcm.byteLength));
   return { pcm, channels, frames, sampleRate };
 }

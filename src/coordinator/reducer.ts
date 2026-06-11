@@ -58,7 +58,14 @@ export function applyAction(state: Project, action: Action): ReducerResult {
       }
       case 'DELETE_CLIP': {
         const idx = draft.clips.findIndex((x) => x.id === action.clipId);
-        if (idx >= 0) draft.clips.splice(idx, 1);
+        if (idx < 0) return;
+        const [removed] = draft.clips.splice(idx, 1);
+        // Garbage-collect the audio sample if no surviving clip references it.
+        const sid = removed?.sampleId;
+        if (sid && !draft.clips.some((c) => c.sampleId === sid)) {
+          const si = draft.samples.findIndex((s) => s.id === sid);
+          if (si >= 0) draft.samples.splice(si, 1);
+        }
         return;
       }
       case 'DUPLICATE_CLIP': {
@@ -269,6 +276,7 @@ export function applyAction(state: Project, action: Action): ReducerResult {
         draft.tracks = next.tracks;
         draft.clips = next.clips;
         draft.channels = next.channels;
+        draft.samples = next.samples;
         draft.bpm = next.bpm;
         draft.loop = next.loop;
         draft.loopStartBeats = next.loopStartBeats;

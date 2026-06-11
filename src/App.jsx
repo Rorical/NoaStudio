@@ -33,6 +33,7 @@ const selectTracks = (p) => p.tracks;
 const selectClips = (p) => p.clips;
 const selectChannels = (p) => p.channels;
 const selectSamples = (p) => p.samples;
+const selectProject = (p) => p;
 const selectBpm = (p) => p.bpm;
 const selectLoop = (p) => p.loop;
 const selectMetronome = (p) => p.metronome;
@@ -46,6 +47,7 @@ export default function App() {
   const clips = useProject(selectClips);
   const channels = useProject(selectChannels);
   const samples = useProject(selectSamples);
+  const fullProject = useProject(selectProject);
   const dispatch = useDispatch();
   const { canUndo, canRedo, undo, redo } = useUndoRedo();
   const [selectedClipId, setSelectedClipId] = useState('c20');
@@ -492,7 +494,10 @@ export default function App() {
     let cancelled = false;
     for (const s of samples) {
       if (loadedSamplesRef.current.has(s.id)) continue;
-      loadedSamplesRef.current.add(s.id);
+      // Mark loaded only on SUCCESS (below), never up-front: if this run is
+      // cancelled by a concurrent samples-table change, the next run re-processes
+      // the sample instead of it being stuck "loaded". A duplicate in-flight load
+      // is harmless (idempotent) and bounded by edit frequency.
       (async () => {
         let data = null;
         if (s.source === 'synth') {
@@ -507,14 +512,50 @@ export default function App() {
           data = store ? await store.read(s.id) : null;
         }
         if (cancelled || !data) return;
+        loadedSamplesRef.current.add(s.id);
         applyDecodedSample(s.id, s.durationSec, data);
       })().catch((err) => {
-        loadedSamplesRef.current.delete(s.id);
         console.error(`sample ${s.id} load failed:`, err);
       });
     }
     return () => { cancelled = true; };
   }, [engineReady, samples, engineRef, applyDecodedSample]);
+
+  // Prune samples no longer in the project (e.g. their last clip was deleted →
+  // DELETE_CLIP garbage-collected them). Free the worklet PCM, the peaks map,
+  // the loaded set, and the OPFS blob so they don't leak.
+  useEffect(() => {
+    const present = new Set(samples.map((s) => s.id));
+    const engine = engineRef.current;
+    for (const id of [...loadedSamplesRef.current]) {
+      if (present.has(id)) continue;
+      loadedSamplesRef.current.delete(id);
+      engine?.unloadSample(id);
+      setSamplePeaks((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      sampleStoreRef.current?.remove(id).catch(() => { /* best-effort */ });
+    }
+  }, [samples, engineRef]);
+
+  // Safety net: prevent a stray audio-file drop (onto a clip, the playhead, or
+  // page chrome) from navigating the browser away and losing the session. The
+  // Playlist lane handlers still own placement (they stopPropagation); this only
+  // swallows file drops that nothing else handled.
+  useEffect(() => {
+    const prevent = (e) => {
+      if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', prevent);
+    window.addEventListener('drop', prevent);
+    return () => {
+      window.removeEventListener('dragover', prevent);
+      window.removeEventListener('drop', prevent);
+    };
+  }, []);
 
   // Import an audio file dropped onto a track: decode to engine-rate PCM,
   // persist to OPFS, load + show its waveform, and add an audio clip.
@@ -963,14 +1004,12 @@ export default function App() {
     }
   }, [dispatch, engineRef]);
 
-  // Save: snapshot current project state to a Blob URL the browser downloads.
+  // Save: snapshot the canonical project to a Blob URL the browser downloads.
+  // Serialize the WHOLE coordinator project so the on-disk shape always matches
+  // the current schema (incl. samples + loop region) and reloads cleanly — a
+  // hand-listed subset silently drifts out of sync with the schema.
   const saveProject = useCallback(() => {
-    const project = {
-      schemaVersion: 2,
-      tracks, clips, channels, bpm, loop, metronome,
-      installedPlugins,
-    };
-    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(fullProject, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -980,7 +1019,7 @@ export default function App() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-  }, [tracks, clips, channels, bpm, loop, metronome, installedPlugins]);
+  }, [fullProject]);
 
   const loadProject = useCallback(() => {
     const input = document.createElement('input');

@@ -175,6 +175,29 @@ describe('AudioClipScheduler', () => {
     expect(h.events.filter((e) => e.type === EVT_AUDIO_ON)).toHaveLength(0);
   });
 
+  it('triggers a clip already underway when transport starts mid-clip, with the right startFrame', () => {
+    // default clip spans beats 4..8; start transport at beat 6 (2 beats in).
+    h.sched.start({ startSample: 6 * SAMPLES_PER_BEAT, startBeat: 6 });
+    h.setSample(6 * SAMPLES_PER_BEAT);
+    h.sched.tick();
+    const ons = h.events.filter((e) => e.type === EVT_AUDIO_ON);
+    expect(ons).toHaveLength(1); // straddle path only, not double-emitted
+    if (ons[0]?.type !== EVT_AUDIO_ON) throw new Error('no on');
+    expect(ons[0].startFrame).toBe(2 * SAMPLES_PER_BEAT); // 2 beats into the sample
+    expect(ons[0].sampleHash).toBe(channelHash('s_demo'));
+    const off = h.events.find((e) => e.type === EVT_AUDIO_OFF);
+    if (off?.type !== EVT_AUDIO_OFF) throw new Error('no off');
+    expect(off.sampleTime).toBe(8 * SAMPLES_PER_BEAT); // clip end
+  });
+
+  it('does not straddle-trigger a clip that has already ended at the anchor', () => {
+    // clip spans 4..8; start at beat 10 (past the clip) -> nothing.
+    h.sched.start({ startSample: 10 * SAMPLES_PER_BEAT, startBeat: 10 });
+    h.setSample(10 * SAMPLES_PER_BEAT);
+    h.sched.tick();
+    expect(h.events.filter((e) => e.type === EVT_AUDIO_ON)).toHaveLength(0);
+  });
+
   it('passes a per-clip gain through to AudioOn', () => {
     h = makeHarness(audioProject({
       clips: [{ trackId: 't8', start: 4, length: 4, sampleId: 's_demo', gain: 0.5 }],

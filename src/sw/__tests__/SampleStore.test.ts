@@ -37,6 +37,16 @@ describe('encodeSample / decodeSample', () => {
   it('throws on a truncated blob', () => {
     expect(() => decodeSample(new Uint8Array(5))).toThrow(/truncated/);
   });
+
+  it('throws when the header claims more frames than the payload holds', () => {
+    // header: channels=2, frames=100, sr=48000 but only 2 floats of PCM
+    const bytes = new Uint8Array(12 + 8);
+    const dv = new DataView(bytes.buffer);
+    dv.setUint32(0, 2, true);
+    dv.setUint32(4, 100, true);
+    dv.setUint32(8, 48000, true);
+    expect(() => decodeSample(bytes)).toThrow(/corrupt/);
+  });
 });
 
 describe('SampleStore', () => {
